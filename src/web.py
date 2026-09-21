@@ -10,7 +10,7 @@ from .extractor import LinkedInExtractor
 from .auth import get_stored_cookies, save_cookies, verify_linkedin_session, parse_cookie_input
 from .exporter import export_to_excel, export_to_csv, export_to_json
 from .config import BASE_DIR, OUTPUT_DIR, SESSION_FILE
-from .models import ExtractionResult, ReactionItem, UserProfile
+from .models import ExtractionResult, ReactionItem, UserProfile\nfrom .chrome_browser import extract_with_local_chrome\nfrom .config import CHROME_CDP_URL
 
 app = FastAPI(
     title="LinkedIn Post Comments & Reactions Extractor",
@@ -56,6 +56,7 @@ class ExtractPayload(BaseModel):
     include_reactions: bool = True
     limit_comments: int = 50
     limit_reactions: int = 100
+    use_local_chrome: bool = True
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -141,6 +142,28 @@ async def extract_data(payload: ExtractPayload):
         post = parse_post_url(url_input)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Preferred mode: connect to the user's already logged-in local Chrome.
+    # This does not copy or store Chrome cookies in the application.
+    if payload.use_local_chrome:
+        try:
+            result, _ = extract_with_local_chrome(
+                post=post,
+                cdp_url=CHROME_CDP_URL,
+                include_comments=payload.include_comments,
+                include_reactions=payload.include_reactions,
+                comments_limit=payload.limit_comments,
+                reactions_limit=payload.limit_reactions,
+            )
+            try:
+                export_to_excel(result)
+                export_to_csv(result)
+                export_to_json(result)
+            except Exception as err:
+                print(f"Warning: Failed to export local Chrome results: {err}")
+            return result
+        except Exception as chrome_err:
+            print(f"[Local Chrome] {chrome_err}; falling back to stored li_at/Voyager mode.")
 
     cookies = get_stored_cookies()
     
