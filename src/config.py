@@ -31,3 +31,10 @@ DEFAULT_USER_AGENT = (
 )
 
 LINKEDIN_VOYAGER_BASE = "https://www.linkedin.com/voyager/api"
+
+# Current LinkedIn web reaction query. LinkedIn may rotate persisted-query hashes;
+# this can be overridden without changing code when LinkedIn deploys a new hash.
+LINKEDIN_REACTIONS_QUERY_ID = os.getenv(
+    "LINKEDIN_REACTIONS_QUERY_ID",
+    "voyagerSocialDashReactions.41ebf31a9f4c4a84e35a49d5abc9010b",
+).strip()
