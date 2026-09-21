@@ -1,0 +1,42 @@
+name: Build Windows Chrome Bridge
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "bridge_server.py"
+      - "bridge_requirements.txt"
+      - "src/**"
+      - ".github/workflows/build-chrome-bridge.yml"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r bridge_requirements.txt
+          python -m pip install pyinstaller
+      - name: Build chrome-bridge.exe
+        shell: pwsh
+        run: |
+          python -m PyInstaller --onefile --clean --name chrome-bridge --collect-all playwright --collect-all pydantic --collect-all fastapi bridge_server.py
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\chrome-bridge.exe")) { throw "chrome-bridge.exe was not created." }
+          Get-Item "dist\chrome-bridge.exe" | Format-List FullName,Length
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-bridge-windows
+          path: dist/chrome-bridge.exe
+          if-no-files-found: error
