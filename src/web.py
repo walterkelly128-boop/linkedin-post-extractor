@@ -12,7 +12,6 @@ from .auth import get_stored_cookies, save_cookies, verify_linkedin_session, par
 from .exporter import export_to_excel, export_to_csv, export_to_json
 from .config import BASE_DIR, OUTPUT_DIR, SESSION_FILE
 from .models import ExtractionResult, ReactionItem, UserProfile
-from .chrome_browser import extract_with_local_chrome
 from .config import CHROME_BRIDGE_URL, CHROME_BRIDGE_TOKEN
 
 app = FastAPI(
