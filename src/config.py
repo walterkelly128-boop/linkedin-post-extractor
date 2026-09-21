@@ -6,9 +6,12 @@ load_dotenv()
 
 # Base directories
 BASE_DIR = Path(__file__).resolve().parent.parent
-SESSION_FILE = BASE_DIR / "session.json"
 OUTPUT_DIR = BASE_DIR / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# Store session in outputs directory so it survives Docker volume mounts safely
+SESSION_FILE = OUTPUT_DIR / "session.json"
+LEGACY_SESSION_FILE = BASE_DIR / "session.json"
 
 # Cookie / Auth configuration
 LINKEDIN_LI_AT = os.getenv("LINKEDIN_LI_AT", "").strip()

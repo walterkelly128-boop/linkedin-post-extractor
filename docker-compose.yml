@@ -7,10 +7,8 @@ services:
       # Web Console UI accessible at http://localhost:8000
       - "8000:8000"
     volumes:
-      # Mount outputs to host so exported Excel/CSV/JSON appear locally
+      # Mount outputs to host so exported files and session.json persist locally
       - ./outputs:/app/outputs
-      # Mount session.json if present
-      - ./session.json:/app/session.json:ro
     env_file:
       - .env
     restart: unless-stopped

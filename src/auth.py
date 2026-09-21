@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from rich.console import Console
 
-from .config import SESSION_FILE, LINKEDIN_LI_AT
+from .config import SESSION_FILE, LEGACY_SESSION_FILE, LINKEDIN_LI_AT
 
 console = Console()
 
@@ -16,29 +16,31 @@ def get_stored_cookies() -> Dict[str, str]:
     """
     cookies: Dict[str, str] = {}
 
-    # 1. First check session.json
-    if SESSION_FILE.exists():
-        try:
-            with open(SESSION_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    # Playwright storage format: [{"name": ..., "value": ...}, ...]
-                    for c in data:
-                        cookies[c["name"]] = c["value"]
-                elif isinstance(data, dict):
-                    # Key-value dict format
-                    if "cookies" in data and isinstance(data["cookies"], list):
-                        for c in data["cookies"]:
-                            cookies[c["name"]] = c["value"]
-                    else:
-                        cookies = data
-        except Exception as e:
-            console.print(f"[yellow]Warning: Failed to read {SESSION_FILE}: {e}[/yellow]")
+    # Check potential session file locations (only if they are actual files, not directories)
+    candidate_files = [SESSION_FILE, LEGACY_SESSION_FILE]
 
-    # 2. Fallback to LINKEDIN_LI_AT environment variable
+    for sf in candidate_files:
+        if sf.exists() and sf.is_file():
+            try:
+                with open(sf, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        for c in data:
+                            cookies[c["name"]] = c["value"]
+                    elif isinstance(data, dict):
+                        if "cookies" in data and isinstance(data["cookies"], list):
+                            for c in data["cookies"]:
+                                cookies[c["name"]] = c["value"]
+                        else:
+                            cookies = data
+                if "li_at" in cookies:
+                    break
+            except Exception as e:
+                console.print(f"[yellow]Warning: Failed to read {sf}: {e}[/yellow]")
+
+    # Fallback to LINKEDIN_LI_AT environment variable
     if "li_at" not in cookies and LINKEDIN_LI_AT:
         cookies["li_at"] = LINKEDIN_LI_AT
-        # Generate or use dummy JSESSIONID if not present
         if "JSESSIONID" not in cookies:
             cookies["JSESSIONID"] = '"ajax:0123456789012345678"'
 
@@ -46,7 +48,9 @@ def get_stored_cookies() -> Dict[str, str]:
 
 
 def save_cookies(cookies_list: list) -> Path:
-    """Save Playwright cookie list to session.json."""
+    """Save cookie list to SESSION_FILE."""
+    # Ensure parent directory exists
+    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(SESSION_FILE, "w", encoding="utf-8") as f:
         json.dump(cookies_list, f, indent=2)
     return SESSION_FILE
@@ -84,12 +88,10 @@ def login_interactive(timeout_seconds: int = 180) -> bool:
         logged_in = False
 
         while time.time() - start_time < timeout_seconds:
-            # Check cookies in context
             current_cookies = context.cookies()
             cookie_dict = {c["name"]: c["value"] for c in current_cookies}
 
             if "li_at" in cookie_dict:
-                # User is logged in!
                 logged_in = True
                 save_cookies(current_cookies)
                 console.print(f"[bold green][OK] Login successful! Credentials securely saved to {SESSION_FILE}[/bold green]")
