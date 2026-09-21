@@ -74,17 +74,18 @@ def verify_linkedin_session(cookies: Optional[Dict[str, str]] = None) -> Tuple[b
         return False, "未配置 Cookie", None
 
     raw_jsessionid = cookies.get("JSESSIONID", "").strip()
-    # Normalize jsessionid: csrf-token header takes ajax:... (without quotes), cookie takes "ajax:..."
+    # Do not invent a CSRF token when only li_at was supplied. A fake token
+    # can make LinkedIn return "delete me" and make a valid stored session
+    # look like it was logged out.
     csrf_token = raw_jsessionid.strip('"')
-    if not csrf_token:
-        csrf_token = "ajax:0123456789012345678"
 
     headers = {
         "User-Agent": DEFAULT_USER_AGENT,
         "Accept": "application/vnd.linkedin.normalized+json+2.1, application/json",
-        "csrf-token": csrf_token,
         "x-restli-protocol-version": "2.0.0",
     }
+    if csrf_token:
+        headers["csrf-token"] = csrf_token
     cookie_dict = dict(cookies)
     cookie_dict["li_at"] = li_at
     if raw_jsessionid:
@@ -110,6 +111,12 @@ def verify_linkedin_session(cookies: Optional[Dict[str, str]] = None) -> Tuple[b
                 return False, msg, None
             return False, f"未通过认证 (HTTP {r.status_code} 重定向至登录页)", None
         elif r.status_code in (401, 403):
+            if not raw_jsessionid:
+                return False, (
+                    "li_at 已保存并会持久化，但当前只提供 li_at，"
+                    "LinkedIn 的 Voyager 验证接口还需要配套 JSESSIONID。"
+                    "这不代表 li_at 被删除；提取时仍会使用已保存会话，并在需要时自动尝试浏览器回退。"
+                ), None
             return False, f"认证失败 (HTTP {r.status_code} 无权限，请检查账号是否受限)", None
         else:
             return False, f"领英响应异常 (HTTP {r.status_code})", None
@@ -157,20 +164,29 @@ def get_stored_cookies() -> Dict[str, str]:
 
 
 def save_cookies(cookies_input) -> Path:
-    """Save cookie list or dict or raw string to SESSION_FILE."""
-    # Ensure parent directory exists
+    """Persist the LinkedIn cookie jar without destroying existing cookies."""
     SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    
+    existing = get_stored_cookies()
+
     if isinstance(cookies_input, str):
         parsed = parse_cookie_input(cookies_input)
-        cookies_list = [{"name": k, "value": v} for k, v in parsed.items()]
     elif isinstance(cookies_input, dict):
-        cookies_list = [{"name": k, "value": str(v)} for k, v in cookies_input.items()]
+        parsed = {str(k): str(v) for k, v in cookies_input.items()}
     elif isinstance(cookies_input, list):
-        cookies_list = cookies_input
+        parsed = {
+            str(item["name"]): str(item["value"])
+            for item in cookies_input
+            if isinstance(item, dict) and item.get("name") and "value" in item
+        }
     else:
         raise ValueError("Unsupported cookies format")
 
+    # Merge instead of replacing: if the user later supplies only li_at,
+    # retain JSESSIONID/bcookie/lidc and other companion cookies.
+    merged = dict(existing)
+    merged.update(parsed)
+
+    cookies_list = [{"name": k, "value": v} for k, v in merged.items()]
     with open(SESSION_FILE, "w", encoding="utf-8") as f:
         json.dump(cookies_list, f, indent=2)
     return SESSION_FILE

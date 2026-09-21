@@ -71,16 +71,28 @@ async def get_status():
     has_li_at = bool(cookies.get("li_at"))
     li_at_preview = (cookies.get("li_at", "")[:8] + "...") if has_li_at else ""
     has_jsessionid = bool(cookies.get("JSESSIONID"))
-    is_valid, status_msg, user_name = verify_linkedin_session(cookies) if has_li_at else (False, "未配置 Cookie", None)
+
+    if has_li_at:
+        is_valid, status_msg, user_name = verify_linkedin_session(cookies)
+    else:
+        is_valid, status_msg, user_name = False, "未配置 Cookie", None
+
+    # "configured" is persistence state, not the same thing as a successful
+    # live Voyager probe. Never turn a stored li_at into "logged out" merely
+    # because the verification endpoint requires a companion JSESSIONID.
+    stored_only = has_li_at and not is_valid
     return {
         "configured": has_li_at,
         "has_jsessionid": has_jsessionid,
         "authenticated": is_valid,
+        "stored": has_li_at,
+        "stored_only": stored_only,
         "status_message": status_msg,
         "user_name": user_name,
         "li_at_preview": li_at_preview,
         "source": "session.json" if SESSION_FILE.exists() else "environment",
     }
+
 
 
 @app.post("/api/cookie")
@@ -132,11 +144,16 @@ async def extract_data(payload: ExtractPayload):
 
     cookies = get_stored_cookies()
     
-    # If user provided cookie directly in the payload, parse and merge it!
+    # If the user supplies li_at on the extraction form, persist it too so a
+    # page refresh does not require entering it again.
     if payload.li_at and payload.li_at.strip():
         parsed = parse_cookie_input(payload.li_at.strip())
         cookies.update(parsed)
-            
+        try:
+            save_cookies(cookies)
+        except Exception as exc:
+            print(f"Warning: failed to persist inline LinkedIn cookie: {exc}")
+
     # If li_at is missing, extractor will run in public fallback mode (extracting public comments & like counts)
     has_cookie = bool(cookies and cookies.get("li_at"))
     if not has_cookie:
