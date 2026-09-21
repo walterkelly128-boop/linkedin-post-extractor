@@ -158,7 +158,14 @@ async def extract_data(payload: ExtractPayload):
                 print(f"Warning: Failed to export local Chrome results: {err}")
             return result
         except Exception as chrome_err:
-            print(f"[Local Chrome] {chrome_err}; falling back to stored li_at/Voyager mode.")
+            print(f"[Local Chrome] {chrome_err}")
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "本机 Chrome 已登录模式连接失败："
+                    f"{type(chrome_err).__name__}: {chrome_err}"
+                ),
+            )
 
     cookies = get_stored_cookies()
 
