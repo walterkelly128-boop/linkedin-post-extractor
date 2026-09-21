@@ -25,6 +25,12 @@ def resolve_canonical_activity_urn(url: str, timeout: float = 6.0) -> Optional[s
             resp = client.get(url, headers=headers)
             html = resp.text
 
+            # Reaction requests are keyed by the post's UGC URN, which can differ
+            # from the activity URN in the permalink. Prefer the UGC URN when present.
+            m_ugc = re.search(r'urn:li:ugcPost:(\\d+)', html)
+            if m_ugc:
+                return f"urn:li:ugcPost:{m_ugc.group(1)}"
+
             # 1. Search for lnkd:url meta tag
             # e.g. <meta property="lnkd:url" content="...urn:li:activity:7503358105997725696">
             m_lnkd = re.search(r'property=["\']lnkd:url["\']\s+content=["\'][^"\']*urn:li:activity:(\d+)', html)
