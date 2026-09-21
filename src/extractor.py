@@ -1,4 +1,6 @@
 import time
+import re
+import json
 import httpx
 from typing import List, Dict, Any, Optional, Tuple
 from rich.console import Console
@@ -16,12 +18,12 @@ console = Console()
 
 
 class LinkedInExtractor:
-    """Extractor for LinkedIn post comments and reactions using Voyager API."""
+    """Extractor for LinkedIn post comments and reactions using Voyager API with HTML fallback."""
 
     def __init__(self, cookies: Optional[Dict[str, str]] = None):
         self.cookies = cookies or get_stored_cookies()
         if not self.cookies or "li_at" not in self.cookies:
-            console.print("[yellow]Warning: No valid `li_at` cookie found. Please run `python -m src.cli login` first.[/yellow]")
+            console.print("[yellow]Warning: No valid `li_at` cookie found. Public fallback mode will be used.[/yellow]")
 
         self.session = self._create_session()
 
@@ -52,6 +54,20 @@ class LinkedInExtractor:
 
         return httpx.Client(**client_kwargs)
 
+    def _get_candidate_urns(self, post: PostEntity) -> List[str]:
+        """Get prioritized candidate URNs to try for comments and reactions."""
+        urns: List[str] = []
+        if post.activity_urn and post.activity_urn not in urns:
+            urns.append(post.activity_urn)
+        if post.urn not in urns:
+            urns.append(post.urn)
+        
+        alt_urn = f"urn:li:activity:{post.entity_id}" if post.entity_type == "ugcPost" else f"urn:li:ugcPost:{post.entity_id}"
+        if alt_urn not in urns:
+            urns.append(alt_urn)
+
+        return urns
+
     def _parse_mini_profile(self, profile_data: Dict[str, Any]) -> UserProfile:
         """Extract standardized UserProfile from various LinkedIn member profile shapes."""
         first_name = profile_data.get("firstName", "")
@@ -63,11 +79,9 @@ class LinkedInExtractor:
         
         profile_url = f"https://www.linkedin.com/in/{public_id}/" if public_id else ""
         
-        # Extract avatar url if available
         avatar_url = ""
         picture = profile_data.get("picture") or profile_data.get("profilePicture")
         if isinstance(picture, dict):
-            # Voyager image format
             root_url = picture.get("rootUrl", "")
             artifacts = picture.get("artifacts", [])
             if root_url and artifacts:
@@ -97,12 +111,7 @@ class LinkedInExtractor:
         start = 0
         count = min(100, limit) if limit > 0 else 100
 
-        # Try with urn, fallback between ugcPost and activity if needed
-        candidate_urns = [
-            post.urn,
-            f"urn:li:activity:{post.entity_id}" if post.entity_type == "ugcPost" else f"urn:li:ugcPost:{post.entity_id}",
-        ]
-
+        candidate_urns = self._get_candidate_urns(post)
         active_urn = candidate_urns[0]
 
         while True:
@@ -117,11 +126,12 @@ class LinkedInExtractor:
             try:
                 resp = self.session.get(url, params=params)
                 if resp.status_code in (301, 302, 303, 307, 401, 403):
-                    console.print(f"[bold red]Authentication failed (HTTP {resp.status_code}): LinkedIn session expired or li_at cookie invalid.[/bold red]")
+                    console.print(f"[yellow]Note (HTTP {resp.status_code}): LinkedIn session expired or unauthenticated for reactions list.[/yellow]")
                     break
                 if resp.status_code in (400, 404):
-                    if active_urn == candidate_urns[0] and len(candidate_urns) > 1:
-                        active_urn = candidate_urns[1]
+                    curr_idx = candidate_urns.index(active_urn)
+                    if curr_idx + 1 < len(candidate_urns):
+                        active_urn = candidate_urns[curr_idx + 1]
                         continue
                     break
 
@@ -133,7 +143,6 @@ class LinkedInExtractor:
 
             elements = data.get("elements", [])
             if not elements:
-                # Some versions put data inside 'data' or 'included'
                 elements = [
                     item for item in data.get("included", [])
                     if "reactionType" in item or "reactionTypeV2" in item
@@ -168,6 +177,69 @@ class LinkedInExtractor:
 
         return reactions
 
+    def extract_comments_from_html(self, post: PostEntity) -> List[CommentItem]:
+        """
+        Fallback parser that extracts public comments from JSON-LD schema on public post page.
+        Works even without cookies!
+        """
+        if not post.original_url.startswith("http"):
+            return []
+
+        html_comments: List[CommentItem] = []
+        try:
+            resp = httpx.get(
+                post.original_url,
+                headers={
+                    "User-Agent": DEFAULT_USER_AGENT,
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+                timeout=15.0,
+                follow_redirects=True,
+            )
+            html = resp.text
+
+            matches = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+            for raw in matches:
+                try:
+                    data = json.loads(raw.strip())
+                    items = data.get("comment", [])
+                    if isinstance(items, dict):
+                        items = [items]
+                    for idx, c in enumerate(items):
+                        creator = c.get("creator", {})
+                        name = creator.get("name", "LinkedIn Member")
+                        text = c.get("text", "")
+                        date_pub = c.get("datePublished", "")
+                        likes_cnt = c.get("interactionStatistic", {}).get("userInteractionCount", 0)
+
+                        author = UserProfile(
+                            name=name,
+                            headline="",
+                            profile_url="",
+                            avatar_url="",
+                            public_identifier="",
+                        )
+
+                        html_comments.append(
+                            CommentItem(
+                                comment_id=f"public_comment_{idx + 1}",
+                                author=author,
+                                text=text.strip(),
+                                created_at_desc=date_pub,
+                                likes_count=likes_cnt,
+                                replies_count=0,
+                                is_reply=False,
+                                post_urn=post.activity_urn or post.urn,
+                            )
+                        )
+                except Exception:
+                    pass
+        except Exception as e:
+            console.print(f"[yellow]Public HTML fallback note: {e}[/yellow]")
+
+        return html_comments
+
     def extract_comments(
         self,
         post: PostEntity,
@@ -175,17 +247,13 @@ class LinkedInExtractor:
         sort_order: str = "RELEVANT"
     ) -> List[CommentItem]:
         """
-        Extract comments from the post.
-        sort_order: 'RELEVANT' or 'RECENT'
+        Extract comments from the post via Voyager API, with HTML fallback.
         """
         comments: List[CommentItem] = []
         start = 0
         count = min(50, limit) if limit > 0 else 50
 
-        candidate_urns = [
-            post.urn,
-            f"urn:li:activity:{post.entity_id}" if post.entity_type == "ugcPost" else f"urn:li:ugcPost:{post.entity_id}",
-        ]
+        candidate_urns = self._get_candidate_urns(post)
         active_urn = candidate_urns[0]
 
         while True:
@@ -200,18 +268,19 @@ class LinkedInExtractor:
             try:
                 resp = self.session.get(url, params=params)
                 if resp.status_code in (301, 302, 303, 307, 401, 403):
-                    console.print(f"[bold red]Authentication failed (HTTP {resp.status_code}): LinkedIn session expired or li_at cookie invalid.[/bold red]")
+                    console.print(f"[yellow]Note (HTTP {resp.status_code}): LinkedIn session unauthenticated, checking public page...[/yellow]")
                     break
                 if resp.status_code in (400, 404):
-                    if active_urn == candidate_urns[0] and len(candidate_urns) > 1:
-                        active_urn = candidate_urns[1]
+                    curr_idx = candidate_urns.index(active_urn)
+                    if curr_idx + 1 < len(candidate_urns):
+                        active_urn = candidate_urns[curr_idx + 1]
                         continue
                     break
 
                 resp.raise_for_status()
                 data = resp.json()
             except Exception as e:
-                console.print(f"[red]Error fetching comments: {e}[/red]")
+                console.print(f"[red]Error fetching comments via API: {e}[/red]")
                 break
 
             elements = data.get("elements", [])
@@ -225,7 +294,6 @@ class LinkedInExtractor:
                 break
 
             for el in elements:
-                # Author
                 commenter_data = (
                     el.get("commenter", {}).get("miniProfile")
                     or el.get("commenter", {}).get("com.linkedin.voyager.feed.MemberActor", {}).get("miniProfile")
@@ -233,7 +301,6 @@ class LinkedInExtractor:
                 )
                 author = self._parse_mini_profile(commenter_data)
 
-                # Text
                 comment_field = el.get("comment") or el.get("commentV2") or {}
                 if isinstance(comment_field, dict):
                     text = comment_field.get("text", "")
@@ -242,7 +309,6 @@ class LinkedInExtractor:
                 else:
                     text = str(comment_field)
 
-                # Social stats
                 social_counts = el.get("socialDetail", {}).get("totalSocialActivityCounts", {})
                 likes_count = social_counts.get("numLikes", 0)
                 replies_count = social_counts.get("numComments", 0)
@@ -271,6 +337,11 @@ class LinkedInExtractor:
             start += len(elements)
             time.sleep(REQUEST_DELAY)
 
+        # If API returned 0 comments, try public HTML fallback!
+        if not comments:
+            console.print("[cyan]Trying public HTML fallback for comments...[/cyan]")
+            comments = self.extract_comments_from_html(post)
+
         return comments
 
     def extract_all(
@@ -286,12 +357,14 @@ class LinkedInExtractor:
         reactions = []
 
         if include_comments:
-            console.print(f"[cyan]Fetching comments for {post.urn}...[/cyan]")
+            target_urn = post.activity_urn or post.urn
+            console.print(f"[cyan]Fetching comments for {target_urn}...[/cyan]")
             comments = self.extract_comments(post, limit=comments_limit)
             console.print(f"[green][OK] Found {len(comments)} comments[/green]")
 
         if include_reactions:
-            console.print(f"[cyan]Fetching reactions for {post.urn}...[/cyan]")
+            target_urn = post.activity_urn or post.urn
+            console.print(f"[cyan]Fetching reactions for {target_urn}...[/cyan]")
             reactions = self.extract_reactions(post, limit=reactions_limit)
             console.print(f"[green][OK] Found {len(reactions)} reactions[/green]")
 

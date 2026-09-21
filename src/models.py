@@ -38,6 +38,7 @@ class PostEntity(BaseModel):
     entity_type: str  # 'ugcPost' or 'activity'
     entity_id: str
     urn: str          # e.g., 'urn:li:ugcPost:7463758057899147265'
+    activity_urn: Optional[str] = None  # Canonical activity URN if resolved from page
     original_url: str
 
 

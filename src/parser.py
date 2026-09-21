@@ -1,61 +1,98 @@
 import re
 from urllib.parse import urlparse, unquote
+from typing import Optional
+import httpx
+
 from .models import PostEntity
+from .config import DEFAULT_USER_AGENT
 
 
-def parse_post_url(url_or_id: str) -> PostEntity:
+def resolve_canonical_activity_urn(url: str, timeout: float = 6.0) -> Optional[str]:
+    """
+    Fetch public HTML metadata to resolve the real canonical `urn:li:activity:<id>`.
+    Essential for UGC posts where ugcPost ID differs from the feed activity ID.
+    """
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return None
+
+    try:
+        headers = {
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.get(url, headers=headers)
+            html = resp.text
+
+            # 1. Search for lnkd:url meta tag
+            # e.g. <meta property="lnkd:url" content="...urn:li:activity:7503358105997725696">
+            m_lnkd = re.search(r'property=["\']lnkd:url["\']\s+content=["\'][^"\']*urn:li:activity:(\d+)', html)
+            if m_lnkd:
+                return f"urn:li:activity:{m_lnkd.group(1)}"
+
+            # 2. Search for canonical link
+            # e.g. <link rel="canonical" href="...activity-7503358105997725696...">
+            m_canon = re.search(r'activity-(\d+)', html)
+            if m_canon:
+                return f"urn:li:activity:{m_canon.group(1)}"
+
+            # 3. Search for any activity URN
+            m_any = re.search(r'urn:li:activity:(\d+)', html)
+            if m_any:
+                return f"urn:li:activity:{m_any.group(1)}"
+    except Exception:
+        pass
+
+    return None
+
+
+def parse_post_url(url_or_id: str, resolve_canonical: bool = True) -> PostEntity:
     """
     Parse any LinkedIn post URL, URN string, or numeric ID into a normalized PostEntity.
-    
-    Supported examples:
-    - https://www.linkedin.com/posts/holliszhang_keyoung-hpmc-the-professional-choice-for-ugcPost-7463758057899147265-mOJK
-    - https://www.linkedin.com/posts/username_title-activity-7302346926123798528-dMnz
-    - https://www.linkedin.com/feed/update/urn:li:activity:7302346926123798528/
-    - https://www.linkedin.com/feed/update/urn:li:ugcPost:7463758057899147265/
-    - urn:li:activity:7302346926123798528
-    - urn:li:ugcPost:7463758057899147265
-    - 7463758057899147265
     """
     clean_input = url_or_id.strip()
     unquoted = unquote(clean_input)
+
+    entity_type = "activity"
+    entity_id = ""
 
     # 1. Check for explicit urn:li:(ugcPost|activity|share):<id>
     urn_match = re.search(r"urn:li:(ugcPost|activity|share):(\d+)", unquoted)
     if urn_match:
         entity_type = urn_match.group(1)
         entity_id = urn_match.group(2)
-        return PostEntity(
-            entity_type=entity_type,
-            entity_id=entity_id,
-            urn=f"urn:li:{entity_type}:{entity_id}",
-            original_url=clean_input,
-        )
 
     # 2. Check for slug patterns: ugcPost-<id> or activity-<id>
-    slug_match = re.search(r"(ugcPost|activity)-(\d+)", unquoted)
-    if slug_match:
+    elif re.search(r"(ugcPost|activity)-(\d+)", unquoted):
+        slug_match = re.search(r"(ugcPost|activity)-(\d+)", unquoted)
         entity_type = slug_match.group(1)
         entity_id = slug_match.group(2)
-        return PostEntity(
-            entity_type=entity_type,
-            entity_id=entity_id,
-            urn=f"urn:li:{entity_type}:{entity_id}",
-            original_url=clean_input,
-        )
 
     # 3. Check for pure digits
-    digit_match = re.match(r"^(\d{15,20})$", clean_input)
-    if digit_match:
-        entity_id = digit_match.group(1)
-        # Default to activity if only numeric ID is given
-        return PostEntity(
-            entity_type="activity",
-            entity_id=entity_id,
-            urn=f"urn:li:activity:{entity_id}",
-            original_url=clean_input,
+    elif re.match(r"^(\d{15,20})$", clean_input):
+        entity_id = clean_input
+        entity_type = "activity"
+
+    else:
+        raise ValueError(
+            f"Unable to parse LinkedIn post entity from input: '{clean_input}'.\n"
+            f"Please provide a valid LinkedIn post link containing ugcPost/activity ID or URN."
         )
 
-    raise ValueError(
-        f"Unable to parse LinkedIn post entity from input: '{clean_input}'.\n"
-        f"Please provide a valid LinkedIn post link containing ugcPost/activity ID or URN."
+    base_urn = f"urn:li:{entity_type}:{entity_id}"
+    activity_urn = None
+
+    if entity_type == "activity":
+        activity_urn = base_urn
+    elif resolve_canonical and (clean_input.startswith("http://") or clean_input.startswith("https://")):
+        # Resolve real canonical activity URN from public page HTML
+        activity_urn = resolve_canonical_activity_urn(clean_input)
+
+    return PostEntity(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        urn=base_urn,
+        activity_urn=activity_urn,
+        original_url=clean_input,
     )
