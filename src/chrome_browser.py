@@ -305,7 +305,7 @@ async def extract_with_local_chrome(
                 # generic "React" button only changes the current user's
                 # reaction and does not open the list of people.
                 count_candidates = page.locator("button, a, span, div").filter(
-                    has_text=re.compile(r"\\b\\d+\\s+reactions?\\b", re.I)
+                    has_text=re.compile(r"\b\d+\s+reactions?\b", re.I)
                 )
                 count = await count_candidates.count()
                 for i in range(min(count, 20)):
@@ -320,7 +320,7 @@ async def extract_with_local_chrome(
 
             if not clicked:
                 candidates = page.locator("button, a").filter(
-                    has_text=re.compile(r"\\breactions?\\b", re.I)
+                    has_text=re.compile(r"\breactions?\b", re.I)
                 )
                 count = await candidates.count()
                 for i in range(min(count, 10)):
