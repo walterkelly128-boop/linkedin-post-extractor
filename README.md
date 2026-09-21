@@ -257,3 +257,101 @@ docker compose up -d --build
 不要删除 `outputs`，其中包含持久化的 `session.json`。
 
 如果本地 Chrome CDP 暂时不可用，程序会自动回退到现有的 `li_at` / Voyager / Playwright 路径。
+
+
+## Windows 本地 Chrome 模式
+
+如果 Docker 内直接通过 CDP 连接 Windows Chrome 时出现 `connect_over_cdp timeout`，现在可以使用 **Chrome Bridge**。
+
+工作方式：
+
+```
+Windows 已登录 Chrome
+        ↓ CDP 127.0.0.1:9222
+Windows Chrome Bridge :8765
+        ↓ HTTP
+Docker Extractor :8000
+```
+
+LinkedIn 登录会话始终保留在 Windows Chrome 中，Docker 不需要复制 `li_at`。
+
+### 1. 启动专用 Chrome
+
+关闭专门用于本工具的 Chrome 后，在 PowerShell 执行：
+
+```powershell
+$chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+
+& $chrome `
+  --remote-debugging-port=9222 `
+  --remote-debugging-address=0.0.0.0 `
+  --remote-allow-origins="*" `
+  --user-data-dir="E:\linkedin-chrome-profile"
+```
+
+第一次打开后，在这个 Chrome 窗口登录 LinkedIn。
+
+### 2. Windows 安装 Bridge 依赖
+
+在本仓库根目录执行：
+
+```powershell
+py -3 -m venv .venv-bridge
+.\.venv-bridge\Scripts\Activate.ps1
+python -m pip install -r bridge_requirements.txt
+python -m playwright install chromium
+```
+
+### 3. 启动 Chrome Bridge
+
+保持上面的 Chrome 开启，再执行：
+
+```powershell
+$env:LOCAL_CHROME_CDP_URL="http://127.0.0.1:9222"
+$env:CHROME_BRIDGE_HOST="0.0.0.0"
+$env:CHROME_BRIDGE_PORT="8765"
+python bridge_server.py
+```
+
+看到：
+
+```
+Chrome Bridge listening on http://0.0.0.0:8765
+Using local Chrome CDP: http://127.0.0.1:9222
+```
+
+即可。
+
+### 4. Docker 配置
+
+`.env` 增加：
+
+```
+CHROME_BRIDGE_URL=http://host.docker.internal:8765
+```
+
+如果设置了 `CHROME_BRIDGE_TOKEN`，Windows Bridge 和 Docker 的 `.env` 必须使用相同值。
+
+然后重新构建：
+
+```powershell
+docker compose down
+docker compose up -d --build
+```
+
+### 5. 测试 Bridge
+
+Windows 本机：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8765/health"
+```
+
+Docker：
+
+```powershell
+docker compose exec extractor python -c "import urllib.request; print(urllib.request.urlopen('http://host.docker.internal:8765/health', timeout=10).read().decode())"
+```
+
+返回 `ok: true` 后，在 `http://localhost:8000` 勾选「优先使用本机已登录 Chrome」并输入 LinkedIn 帖子 URL。
+
