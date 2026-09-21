@@ -1,0 +1,12 @@
+services:
+  extractor:
+    build: .
+    image: linkedin-post-extractor:latest
+    container_name: linkedin-post-extractor
+    volumes:
+      # Mount output directory to host so extracted CSV/Excel/JSON files appear locally
+      - ./outputs:/app/outputs
+      # Optionally mount session.json if logged in on host
+      - ./session.json:/app/session.json:ro
+    env_file:
+      - .env

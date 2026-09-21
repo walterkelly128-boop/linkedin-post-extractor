@@ -55,8 +55,36 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 4. (Optional, if using interactive login) Install Playwright Chromium
-playwright install chromium
 ```
+
+---
+
+## 🐳 Docker & Docker Desktop
+
+You can run the extractor directly inside Docker Desktop without setting up a local Python environment!
+
+### 1. Build the Docker Image
+```bash
+docker compose build
+# or: docker build -t linkedin-post-extractor .
+```
+
+### 2. Configure Credentials
+Copy `.env.example` to `.env` and fill in your LinkedIn `li_at` cookie:
+```env
+LINKEDIN_LI_AT=AQEDAxxxxxxx
+```
+*(Or, if you previously ran `python main.py login` on your host machine, the mounted `session.json` will be detected automatically!)*
+
+### 3. Run Extraction with Docker
+```bash
+# Using Docker Compose:
+docker compose run --rm extractor scrape "https://www.linkedin.com/posts/holliszhang_keyoung-hpmc-the-professional-choice-for-ugcPost-7463758057899147265-mOJK"
+
+# Or using plain Docker:
+docker run --rm -v "${PWD}/outputs:/app/outputs" --env-file .env linkedin-post-extractor scrape "<POST_URL>"
+```
+All extracted Excel, CSV, and JSON files will immediately appear in your local `outputs/` folder.
 
 ---
 
