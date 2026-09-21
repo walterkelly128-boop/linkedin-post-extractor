@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    container_name: linkedin-extractor
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount local output directory so results are accessible on host
+      - ./output:/app/output
+    environment:
+      # Docker Desktop on Windows/Mac automatically provides host.docker.internal
+      # On Linux, it's resolved via extra_hosts below
+      - CHROME_CDP_URL=ws://host.docker.internal:9222
+      - OUTPUT_DIR=/app/output
+    extra_hosts:
+      # Required on Linux; harmless on Windows/Mac Docker Desktop
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
