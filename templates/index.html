@@ -206,24 +206,28 @@
       </div>
 
       <div class="space-y-3 text-xs sm:text-sm text-slate-600">
-        <p>Enter your <code>li_at</code> session cookie below. It will be saved securely inside your container's environment.</p>
+        <p>输入你的领英 <code>li_at</code> 会话 Cookie，用于通过领英官方 API 抓取点赞者（含个人档案主页链接）及深层评论。</p>
         
-        <div class="bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded-lg text-xs leading-relaxed">
-          <strong>How to get <code>li_at</code>:</strong><br>
-          1. Open <a href="https://www.linkedin.com" target="_blank" class="underline font-semibold">linkedin.com</a> in your browser and sign in.<br>
-          2. Press <kbd class="bg-white px-1 py-0.5 border rounded">F12</kbd> &rarr; Application &rarr; Cookies &rarr; <code>linkedin.com</code>.<br>
-          3. Copy the value of the cookie named <code>li_at</code> and paste it here.
+        <div class="bg-blue-50 border border-blue-200 text-blue-800 p-3.5 rounded-lg text-xs leading-relaxed space-y-1">
+          <div class="font-bold mb-1"><i class="fa-solid fa-key"></i> 如何正确获取 <code>li_at</code>：</div>
+          <div>1. 在电脑浏览器打开并正常登录 <a href="https://www.linkedin.com" target="_blank" class="underline font-semibold text-blue-700">linkedin.com</a>。</div>
+          <div>2. 保持网页不要关闭，按 <kbd class="bg-white px-1 py-0.5 border rounded shadow-sm">F12</kbd> 打开开发者工具。</div>
+          <div>3. 切换到 <strong>Application (应用程序)</strong> &rarr; <strong>Cookies</strong> &rarr; <code>https://www.linkedin.com</code>。</div>
+          <div>4. 找到名为 <code>li_at</code> 的 Cookie，双击选中它的值并复制粘贴到下方。</div>
+          <div class="text-rose-700 font-medium pt-1">⚠️ 注意：复制后请勿在网页中点击“退出登录（Sign Out）”，否则领英会立即将该 Cookie 彻底作废！</div>
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-700 mb-1">LinkedIn <code>li_at</code> Cookie Value:</label>
-          <input type="password" id="modalLiAtInput" placeholder="AQEDAxxxx..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-500">
+          <label class="block text-xs font-semibold text-slate-700 mb-1">LinkedIn <code>li_at</code> Cookie 值:</label>
+          <input type="password" id="modalLiAtInput" placeholder="AQEDAWxxxx..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-500 font-mono">
         </div>
       </div>
 
       <div class="pt-2 flex justify-end space-x-2">
-        <button onclick="toggleCookieModal(false)" class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
-        <button onclick="saveCookieFromModal()" class="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Save Cookie</button>
+        <button onclick="toggleCookieModal(false)" class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+        <button onclick="saveCookieFromModal()" id="btnSaveCookieModal" class="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-1.5">
+          <i class="fa-solid fa-check"></i> 验证并保存
+        </button>
       </div>
     </div>
   </div>
@@ -240,11 +244,20 @@
         const data = await res.json();
         const badge = document.getElementById('cookieStatusBadge');
         if (data.authenticated) {
-          badge.className = "px-3 py-1 rounded-full text-xs font-medium flex items-center gap-2 bg-emerald-100 text-emerald-800";
-          badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span> Active (li_at: ${data.li_at_preview})`;
+          badge.className = "px-3 py-1 rounded-full text-xs font-medium flex items-center gap-2 bg-emerald-100 text-emerald-800 cursor-pointer";
+          badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500"></span> 已连接: ${data.user_name || '有效'}`;
+          badge.title = data.status_message;
+          badge.onclick = () => toggleCookieModal(true);
+        } else if (data.configured) {
+          badge.className = "px-3 py-1 rounded-full text-xs font-medium flex items-center gap-2 bg-rose-100 text-rose-800 cursor-pointer animate-pulse";
+          badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> Cookie 已失效 (点击重新配置)`;
+          badge.title = data.status_message;
+          badge.onclick = () => toggleCookieModal(true);
         } else {
-          badge.className = "px-3 py-1 rounded-full text-xs font-medium flex items-center gap-2 bg-amber-100 text-amber-800";
-          badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500"></span> No Cookie Configured`;
+          badge.className = "px-3 py-1 rounded-full text-xs font-medium flex items-center gap-2 bg-amber-100 text-amber-800 cursor-pointer";
+          badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500"></span> 未配置 Cookie (仅公开模式)`;
+          badge.title = "点击配置有效 li_at 获取点赞者详情";
+          badge.onclick = () => toggleCookieModal(true);
         }
       } catch (err) {
         console.error(err);
@@ -258,9 +271,13 @@
     async function saveCookieFromModal() {
       const val = document.getElementById('modalLiAtInput').value.trim();
       if (!val) {
-        alert("Please enter a valid li_at cookie string.");
+        alert("请输入有效的 li_at Cookie 字符串。");
         return;
       }
+      const saveBtn = document.getElementById('btnSaveCookieModal');
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 验证中...`;
+
       try {
         const res = await fetch('/api/cookie', {
           method: 'POST',
@@ -273,12 +290,21 @@
         if (!res.ok) throw new Error(d.detail || d.message || `Error ${res.status}`);
         
         toggleCookieModal(false);
-        checkStatus();
-        alert("Cookie saved successfully!");
+        await checkStatus();
+
+        if (d.valid) {
+          alert(`✅ 领英登录验证成功！当前登录账号: ${d.user_name}\n现在可以提取点赞者的个人主页列表了！`);
+        } else {
+          alert(`⚠️ 注意：${d.message}\n\n领英服务器拒绝了该 Cookie，请检查是否在浏览器中点击过退出登录或复制了旧的 Cookie。`);
+        }
       } catch (e) {
-        alert("Failed to save cookie: " + e.message);
+        alert("保存或验证 Cookie 出错: " + e.message);
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = `<i class="fa-solid fa-check"></i> 验证并保存`;
       }
     }
+
 
     async function startExtraction() {
       const url = document.getElementById('postUrl').value.trim();

@@ -1,12 +1,55 @@
 import json
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
+import httpx
 from rich.console import Console
 
-from .config import SESSION_FILE, LEGACY_SESSION_FILE, LINKEDIN_LI_AT
+from .config import SESSION_FILE, LEGACY_SESSION_FILE, LINKEDIN_LI_AT, DEFAULT_USER_AGENT
 
 console = Console()
+
+
+def verify_linkedin_session(cookies: Optional[Dict[str, str]] = None) -> Tuple[bool, str, Optional[str]]:
+    """
+    Verify if the current LinkedIn session cookie (li_at) is actually valid by making a live probe.
+    Returns: (is_valid: bool, status_message: str, user_name: Optional[str])
+    """
+    if cookies is None:
+        cookies = get_stored_cookies()
+
+    li_at = cookies.get("li_at", "").strip()
+    if not li_at:
+        return False, "未配置 Cookie", None
+
+    jsessionid = cookies.get("JSESSIONID", "").strip('"') or "ajax:0123456789012345678"
+    headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "application/vnd.linkedin.normalized+json+2.1, application/json",
+        "csrf-token": jsessionid,
+        "x-restli-protocol-version": "2.0.0",
+    }
+    cookie_dict = {"li_at": li_at, "JSESSIONID": f'"{jsessionid}"'}
+
+    try:
+        r = httpx.get("https://www.linkedin.com/voyager/api/me", cookies=cookie_dict, headers=headers, follow_redirects=False, timeout=8.0)
+        if r.status_code == 200:
+            data = r.json()
+            first = data.get("firstName", "")
+            last = data.get("lastName", "")
+            name = f"{first} {last}".strip() or "LinkedIn Member"
+            return True, f"有效 (已登录: {name})", name
+        elif r.status_code in (301, 302, 303, 307):
+            set_cookie = r.headers.get("set-cookie", "")
+            if "delete me" in set_cookie:
+                return False, "Cookie 已失效 (领英返回 delete me，说明此 Token 已过期或在网页端被注销)", None
+            return False, f"未通过认证 (HTTP {r.status_code} 重定向至登录页)", None
+        elif r.status_code in (401, 403):
+            return False, f"认证失败 (HTTP {r.status_code} 无权限)", None
+        else:
+            return False, f"响应异常 (HTTP {r.status_code})", None
+    except Exception as e:
+        return False, f"连接领英验证失败: {e}", None
 
 
 def get_stored_cookies() -> Dict[str, str]:

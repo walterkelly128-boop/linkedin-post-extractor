@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from .parser import parse_post_url
 from .extractor import LinkedInExtractor
-from .auth import get_stored_cookies, save_cookies
+from .auth import get_stored_cookies, save_cookies, verify_linkedin_session
 from .exporter import export_to_excel, export_to_csv, export_to_json
 from .config import BASE_DIR, OUTPUT_DIR, SESSION_FILE
 from .models import ExtractionResult
@@ -60,8 +60,12 @@ async def get_status():
     cookies = get_stored_cookies()
     has_li_at = bool(cookies.get("li_at"))
     li_at_preview = (cookies.get("li_at", "")[:8] + "...") if has_li_at else ""
+    is_valid, status_msg, user_name = verify_linkedin_session(cookies) if has_li_at else (False, "未配置 Cookie", None)
     return {
-        "authenticated": has_li_at,
+        "configured": has_li_at,
+        "authenticated": is_valid,
+        "status_message": status_msg,
+        "user_name": user_name,
         "li_at_preview": li_at_preview,
         "source": "session.json" if SESSION_FILE.exists() else "environment",
     }
@@ -83,7 +87,17 @@ async def update_cookie(payload: CookiePayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to persist cookie: {e}")
 
-    return {"success": True, "message": "Cookie saved successfully."}
+    # Verify immediately
+    test_cookies = {"li_at": cookie_val, "JSESSIONID": '"ajax:0123456789012345678"'}
+    is_valid, status_msg, user_name = verify_linkedin_session(test_cookies)
+
+    return {
+        "success": True,
+        "valid": is_valid,
+        "user_name": user_name,
+        "message": status_msg if is_valid else f"Cookie 已保存，但验证提示：{status_msg}。请确保从正常登录的领英标签页中复制最新 li_at。",
+    }
+
 
 
 @app.post("/api/extract", response_model=ExtractionResult)

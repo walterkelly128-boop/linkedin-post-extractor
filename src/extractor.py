@@ -38,6 +38,7 @@ class LinkedInExtractor:
 
     def __init__(self, cookies: Optional[Dict[str, str]] = None):
         self.cookies = cookies or get_stored_cookies()
+        self.session_invalid = False
         if not self.cookies or "li_at" not in self.cookies:
             console.print("[yellow]Warning: No valid `li_at` cookie found. Public fallback mode will be used.[/yellow]")
 
@@ -93,7 +94,21 @@ class LinkedInExtractor:
         headline = profile_data.get("occupation") or profile_data.get("headline") or ""
         public_id = profile_data.get("publicIdentifier") or profile_data.get("vanityName") or ""
         
-        profile_url = f"https://www.linkedin.com/in/{public_id}/" if public_id else ""
+        profile_url = ""
+        if public_id:
+            profile_url = f"https://www.linkedin.com/in/{public_id}/"
+        elif "navigationUrl" in profile_data:
+            profile_url, vanity = clean_linkedin_profile_url(profile_data["navigationUrl"])
+            if not public_id:
+                public_id = vanity
+        elif "profileUrl" in profile_data:
+            profile_url, vanity = clean_linkedin_profile_url(profile_data["profileUrl"])
+            if not public_id:
+                public_id = vanity
+        elif "url" in profile_data:
+            profile_url, vanity = clean_linkedin_profile_url(profile_data["url"])
+            if not public_id:
+                public_id = vanity
         
         avatar_url = ""
         picture = profile_data.get("picture") or profile_data.get("profilePicture")
@@ -205,6 +220,7 @@ class LinkedInExtractor:
                     resp = self.session.get(url, params=params)
                     if resp.status_code in (301, 302, 303, 307, 401, 403):
                         console.print(f"[yellow]Note (HTTP {resp.status_code}): LinkedIn session unauthenticated for reactions list.[/yellow]")
+                        self.session_invalid = True
                         break
                     if resp.status_code in (400, 404):
                         curr_idx = candidate_urns.index(active_urn)
@@ -521,12 +537,23 @@ class LinkedInExtractor:
                 m = re.search(r'\((\d+)\s+likes\)', r.reactor.name)
                 if m:
                     public_likes = int(m.group(1))
-            notes = (
-                f"Public Post Stats: {public_likes} likes found. "
-                "Notice: LinkedIn only displays individual reactor profile links to logged-in users. Configure your `li_at` cookie to scrape the full reactor profiles list."
-            )
+
+            if self.session_invalid:
+                notes = (
+                    f"⚠️ Cookie 验证失效警告：您配置的 `li_at` Cookie 已被领英服务器判定为失效（HTTP 302 / delete me），说明该 Token 已过期或在网页中被注销。"
+                    f"领英平台严格限制仅对有效登录账号展示点赞者详情。系统已为您自动提取公开评论（含主页链接）及公开点赞总数（{public_likes} 个）。"
+                    "解决办法：请在浏览器正常登录领英（请勿点击退出登录），打开 F12 -> Application -> Cookies，复制最新的 `li_at` 值更新到【配置 Cookie】中。"
+                )
+            else:
+                notes = (
+                    f"💡 公开数据模式：检测到该帖子共有 {public_likes} 个点赞。领英对公开访客隐藏了点赞者的具体名单与主页链接。"
+                    "若需抓取点赞人员的姓名与个人主页 URL，请在上方【配置 Cookie】填入已登录领英账号的有效 li_at。"
+                )
         elif not reactions and include_reactions:
-            notes = "No reactions found. If this post has reactions, configure your `li_at` cookie to access them."
+            if self.session_invalid:
+                notes = "⚠️ 您配置的 li_at Cookie 已过期或失效，未能获取点赞者信息。请重新在浏览器复制最新的 li_at。"
+            else:
+                notes = "未获取到点赞信息。如该帖子有点赞，请配置有效的 li_at Cookie。"
 
         return ExtractionResult(
             post=post,
@@ -537,4 +564,5 @@ class LinkedInExtractor:
             comments=comments,
             reactions=reactions,
         )
+
 

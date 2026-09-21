@@ -15,7 +15,7 @@ if sys.platform == "win32":
         pass
 
 from .parser import parse_post_url
-from .auth import login_interactive, get_stored_cookies
+from .auth import login_interactive, get_stored_cookies, verify_linkedin_session
 from .extractor import LinkedInExtractor
 from .exporter import export_to_csv, export_to_json, export_to_excel
 from .config import SESSION_FILE
@@ -54,8 +54,15 @@ def status():
         return
 
     source = "session.json" if SESSION_FILE.exists() else ".env (LINKEDIN_LI_AT)"
-    console.print(f"[bold green][OK] Active credentials found[/bold green] via {source}")
-    console.print(f"[dim]li_at cookie (first 8 chars): {cookies['li_at'][:8]}...[/dim]")
+    console.print(f"Verifying session via {source}...")
+    is_valid, msg, user_name = verify_linkedin_session(cookies)
+    if is_valid:
+        console.print(f"[bold green][OK] Session verified and active![/bold green] (Logged in as: [bold cyan]{user_name}[/bold cyan])")
+        console.print(f"[dim]li_at preview: {cookies['li_at'][:10]}...[/dim]")
+    else:
+        console.print(f"[bold red][!] Session check failed:[/bold red] {msg}")
+        console.print("[yellow]Hint: LinkedIn rejected the li_at cookie. Please log in to linkedin.com in your browser (keep the tab open), copy the fresh li_at from F12 -> Application -> Cookies, and update it.[/yellow]")
+
 
 
 @app.command()
