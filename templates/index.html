@@ -65,6 +65,15 @@
           </div>
         </div>
 
+        <!-- Local Chrome mode -->
+        <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <label class="flex items-center gap-2 text-sm font-semibold text-blue-900 cursor-pointer">
+            <input type="checkbox" id="useLocalChrome" checked class="w-4 h-4 text-blue-600 rounded border-blue-300 focus:ring-blue-500">
+            <span>优先使用本机已登录 Chrome</span>
+          </label>
+          <p class="text-[11px] text-blue-700 mt-1 ml-6">无需输入 li_at。程序会通过 Chrome 调试连接使用你已经登录 LinkedIn 的浏览器会话，自动打开帖子并获取点赞、评论及主页 URL。</p>
+        </div>
+
         <!-- Optional Inline Cookie Input -->
         <div>
           <label class="block text-xs font-medium text-slate-600 mb-1">LinkedIn <code>li_at</code> Session Cookie (Optional if configured above):</label>
@@ -464,7 +473,7 @@
       const notice = document.getElementById('executionNotice');
       btn.disabled = true;
       btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Extracting...</span>`;
-      notice.innerText = "Connecting to LinkedIn Voyager API...";
+      notice.innerText = document.getElementById('useLocalChrome').checked ? "Connecting to your logged-in Chrome..." : "Connecting to LinkedIn Voyager API...";
 
       try {
         const payload = {
@@ -474,6 +483,7 @@
           include_reactions: document.getElementById('extractReactions').checked,
           limit_comments: parseInt(document.getElementById('limitComments').value) || 50,
           limit_reactions: parseInt(document.getElementById('limitReactions').value) || 100,
+          use_local_chrome: document.getElementById('useLocalChrome').checked,
         };
 
         const res = await fetch('/api/extract', {
