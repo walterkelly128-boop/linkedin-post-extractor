@@ -10,7 +10,7 @@ from .models import (
 )
 from .config import (
     LINKEDIN_VOYAGER_BASE, DEFAULT_USER_AGENT, REQUEST_DELAY,
-    HTTP_PROXY, HTTPS_PROXY
+    HTTP_PROXY, HTTPS_PROXY, LINKEDIN_REACTIONS_QUERY_ID
 )
 from .auth import get_stored_cookies
 
@@ -381,6 +381,91 @@ class LinkedInExtractor:
             console.print(f"[yellow]Browser reaction extraction failed: {e}[/yellow]")
             return []
 
+    def extract_reactions_direct(
+        self,
+        post: PostEntity,
+        limit: int = 100,
+        reaction_type: str = "ALL",
+    ) -> List[ReactionItem]:
+        """Browserless reaction extraction via LinkedIn's persisted Voyager query."""
+        if not self.cookies or not self.cookies.get("li_at"):
+            return []
+
+        seen = set()
+        results: List[ReactionItem] = []
+        count = min(100, limit) if limit > 0 else 100
+
+        for active_urn in self._get_candidate_urns(post):
+            start = 0
+            while True:
+                variables = f"(threadUrn:{active_urn},count:{count},start:{start})"
+                try:
+                    resp = self.session.get(
+                        f"{LINKEDIN_VOYAGER_BASE}/graphql",
+                        params={"variables": variables, "queryId": LINKEDIN_REACTIONS_QUERY_ID},
+                    )
+                except Exception as e:
+                    console.print(f"[yellow]Direct reactions request failed: {e}[/yellow]")
+                    break
+
+                if resp.status_code in (301, 302, 303, 307, 401, 403):
+                    self.session_invalid = True
+                    break
+                if resp.status_code in (400, 404):
+                    break
+                try:
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception:
+                    break
+
+                included = data.get("included", [])
+                if not isinstance(included, list):
+                    included = []
+
+                page_profiles = []
+                for item in included:
+                    if not isinstance(item, dict):
+                        continue
+                    urn = str(item.get("entityUrn", ""))
+                    nav = item.get("navigationUrl") or item.get("profileUrl") or item.get("url") or ""
+                    is_profile = "profile" in urn.lower() or bool(item.get("publicIdentifier")) or "/in/" in str(nav)
+                    if not is_profile:
+                        continue
+                    profile = self._parse_mini_profile(item)
+                    if not profile.profile_url and nav:
+                        profile.profile_url, vanity = clean_linkedin_profile_url(str(nav))
+                        if not profile.public_identifier:
+                            profile.public_identifier = vanity
+                    if profile.profile_url and profile.profile_url not in seen:
+                        page_profiles.append(profile)
+
+                added = 0
+                for profile in page_profiles:
+                    if profile.profile_url in seen:
+                        continue
+                    seen.add(profile.profile_url)
+                    results.append(
+                        ReactionItem(
+                            reaction_type=reaction_type.upper() if reaction_type.upper() != "ALL" else "LIKE",
+                            reactor=profile,
+                            post_urn=active_urn,
+                        )
+                    )
+                    added += 1
+                    if limit > 0 and len(results) >= limit:
+                        return results[:limit]
+
+                if added == 0 or len(page_profiles) < count:
+                    break
+                start += count
+                time.sleep(REQUEST_DELAY)
+
+            if results:
+                return results[:limit] if limit > 0 else results
+
+        return results
+
     def extract_reactions(
         self,
         post: PostEntity,
@@ -392,13 +477,23 @@ class LinkedInExtractor:
         reaction_type: 'ALL', 'LIKE', 'PRAISE', 'EMPATHY', 'APPRECIATION', 'INTEREST'
         """
         reactions: List[ReactionItem] = []
+
+        has_auth = bool(self.cookies and self.cookies.get("li_at"))
+        if has_auth:
+            direct_reactions = self.extract_reactions_direct(
+                post=post,
+                limit=limit,
+                reaction_type=reaction_type,
+            )
+            if direct_reactions:
+                console.print(f"[green][OK] Direct API extracted {len(direct_reactions)} reactor profile URLs[/green]")
+                return direct_reactions
+
         start = 0
         count = min(100, limit) if limit > 0 else 100
 
         candidate_urns = self._get_candidate_urns(post)
         active_urn = candidate_urns[0]
-
-        has_auth = bool(self.cookies and self.cookies.get("li_at"))
 
         if has_auth:
             while True:
