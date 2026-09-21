@@ -20,10 +20,11 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
     uvicorn>=0.23.0 \
     jinja2>=3.1.0
 
-# Copy source code and web dashboard templates
+# Copy source code, templates and entrypoints
 COPY src/ ./src/
 COPY templates/ ./templates/
 COPY main.py .
+COPY web_server.py .
 
 # Create outputs directory
 RUN mkdir -p /app/outputs
@@ -31,5 +32,5 @@ RUN mkdir -p /app/outputs
 # Expose Web Console port for Docker Desktop
 EXPOSE 8000
 
-ENTRYPOINT ["python", "main.py"]
-CMD ["web", "--host", "0.0.0.0", "--port", "8000"]
+# Default: start Web Dashboard directly
+CMD ["python", "web_server.py"]
