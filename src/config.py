@@ -32,10 +32,11 @@ LINKEDIN_REACTIONS_QUERY_ID = os.getenv(
 ).strip()
 
 # Docker Desktop reaches the Windows host through host.docker.internal.
-# For Playwright CDP, prefer the browser websocket URL directly. Chrome 153
-# can reject the HTTP /json/version discovery request from inside Docker.
+# Chrome 153 may return HTTP 500 for /json/version unless the Host header
+# matches the loopback host. chrome_browser.py handles discovery and then
+# connects to the exact browser WebSocket endpoint.
 CHROME_CDP_URL = os.getenv(
     "CHROME_CDP_URL",
-    "ws://host.docker.internal:9222/devtools/browser",
+    "http://host.docker.internal:9222",
 ).strip()
 CHROME_CDP_TIMEOUT = float(os.getenv("CHROME_CDP_TIMEOUT", "15").strip() or "15")
