@@ -3,6 +3,8 @@ services:
     build: .
     image: linkedin-post-extractor:latest
     container_name: linkedin-post-extractor
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       # Web Console UI accessible at http://localhost:8000
       - "8000:8000"
