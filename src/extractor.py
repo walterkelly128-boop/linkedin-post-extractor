@@ -37,19 +37,20 @@ class LinkedInExtractor:
             "x-li-page-instance": "urn:li:page:d_flagship3_feed;default",
         }
         
-        proxies = {}
-        if HTTP_PROXY:
-            proxies["http://"] = HTTP_PROXY
-        if HTTPS_PROXY:
-            proxies["https://"] = HTTPS_PROXY
+        client_kwargs = {
+            "headers": headers,
+            "cookies": self.cookies,
+            "timeout": 30.0,
+            "follow_redirects": False,
+        }
+        active_proxy = HTTPS_PROXY or HTTP_PROXY
+        if active_proxy:
+            try:
+                return httpx.Client(proxy=active_proxy, **client_kwargs)
+            except TypeError:
+                return httpx.Client(proxies=active_proxy, **client_kwargs)
 
-        return httpx.Client(
-            headers=headers,
-            cookies=self.cookies,
-            proxies=proxies if proxies else None,
-            timeout=30.0,
-            follow_redirects=True,
-        )
+        return httpx.Client(**client_kwargs)
 
     def _parse_mini_profile(self, profile_data: Dict[str, Any]) -> UserProfile:
         """Extract standardized UserProfile from various LinkedIn member profile shapes."""
@@ -115,8 +116,10 @@ class LinkedInExtractor:
 
             try:
                 resp = self.session.get(url, params=params)
-                if resp.status_code == 404 or resp.status_code == 400:
-                    # Switch to fallback URN if first attempt failed
+                if resp.status_code in (301, 302, 303, 307, 401, 403):
+                    console.print(f"[bold red]Authentication failed (HTTP {resp.status_code}): LinkedIn session expired or li_at cookie invalid.[/bold red]")
+                    break
+                if resp.status_code in (400, 404):
                     if active_urn == candidate_urns[0] and len(candidate_urns) > 1:
                         active_urn = candidate_urns[1]
                         continue
@@ -196,6 +199,9 @@ class LinkedInExtractor:
 
             try:
                 resp = self.session.get(url, params=params)
+                if resp.status_code in (301, 302, 303, 307, 401, 403):
+                    console.print(f"[bold red]Authentication failed (HTTP {resp.status_code}): LinkedIn session expired or li_at cookie invalid.[/bold red]")
+                    break
                 if resp.status_code in (400, 404):
                     if active_urn == candidate_urns[0] and len(candidate_urns) > 1:
                         active_urn = candidate_urns[1]

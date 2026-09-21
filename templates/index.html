@@ -65,6 +65,22 @@
           </div>
         </div>
 
+        <!-- Optional Inline Cookie Input -->
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">LinkedIn <code>li_at</code> Session Cookie (Optional if configured above):</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+              <i class="fa-solid fa-key"></i>
+            </span>
+            <input 
+              type="password" 
+              id="inlineLiAt" 
+              placeholder="Paste your li_at cookie here (starts with AQED...) or configure via top right button"
+              class="w-full pl-10 pr-4 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </div>
+        </div>
+
         <!-- Extraction Options -->
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2">
           <label class="flex items-center space-x-2 text-sm text-slate-700 cursor-pointer">
@@ -244,16 +260,16 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ li_at: val })
         });
-        const d = await res.json();
-        if (d.success) {
-          toggleCookieModal(false);
-          checkStatus();
-          alert("Cookie saved successfully!");
-        } else {
-          alert("Failed to save: " + d.message);
-        }
+        const text = await res.text();
+        let d = {};
+        try { d = JSON.parse(text); } catch (e) { throw new Error(`Server returned (${res.status}): ${text}`); }
+        if (!res.ok) throw new Error(d.detail || d.message || `Error ${res.status}`);
+        
+        toggleCookieModal(false);
+        checkStatus();
+        alert("Cookie saved successfully!");
       } catch (e) {
-        alert("Network error: " + e.message);
+        alert("Failed to save cookie: " + e.message);
       }
     }
 
@@ -264,6 +280,8 @@
         return;
       }
 
+      const inlineCookie = document.getElementById('inlineLiAt').value.trim();
+
       const btn = document.getElementById('startBtn');
       const notice = document.getElementById('executionNotice');
       btn.disabled = true;
@@ -273,6 +291,7 @@
       try {
         const payload = {
           url: url,
+          li_at: inlineCookie || undefined,
           include_comments: document.getElementById('extractComments').checked,
           include_reactions: document.getElementById('extractReactions').checked,
           limit_comments: parseInt(document.getElementById('limitComments').value) || 50,
@@ -285,9 +304,16 @@
           body: JSON.stringify(payload)
         });
 
-        const data = await res.json();
+        const text = await res.text();
+        let data = {};
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          throw new Error(`Server returned (${res.status}): ${text}`);
+        }
+
         if (!res.ok) {
-          throw new Error(data.detail || "Extraction failed");
+          throw new Error(data.detail || `Extraction failed (${res.status})`);
         }
 
         currentResult = data;
