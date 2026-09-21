@@ -181,3 +181,24 @@ This tool is created for educational and research purposes only. Automated scrap
 ## 📄 License
 
 Distributed under the [MIT License](LICENSE).
+
+
+### 登录后仍拿不到点赞者主页 URL
+
+当前版本增加了登录态浏览器兜底。即使 LinkedIn 的 Voyager `/feed/reactions` 接口拒绝请求，只要 `outputs/session.json` 中的登录 Cookie 仍有效，系统会自动：
+
+1. 打开目标帖子；
+2. 点击 Reactions 统计入口（不会点击普通 Like 按钮）；
+3. 滚动点赞者弹窗的虚拟列表；
+4. 从真实页面 DOM 提取 `https://www.linkedin.com/in/...` 主页 URL；
+5. 将结果直接写入网页表格、JSON、CSV 和 Excel。
+
+Docker 镜像现在会安装 Playwright Chromium。更新代码后请重新构建镜像：
+
+```bash
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
+
+如果登录状态已经保存，不需要重新登录；`outputs/session.json` 会通过现有 volume 持久化。
