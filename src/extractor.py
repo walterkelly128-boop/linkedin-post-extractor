@@ -17,6 +17,22 @@ from .auth import get_stored_cookies
 console = Console()
 
 
+from urllib.parse import urlparse
+
+def clean_linkedin_profile_url(raw_url: str) -> Tuple[str, str]:
+    """Normalize any LinkedIn profile URL and extract vanity identifier."""
+    if not raw_url:
+        return "", ""
+    parsed = urlparse(raw_url.strip())
+    path = parsed.path
+    m = re.search(r'/in/([^/?#]+)', path)
+    if m:
+        vanity = m.group(1).rstrip('/')
+        return f"https://www.linkedin.com/in/{vanity}", vanity
+    clean_url = raw_url.split("?")[0]
+    return clean_url, ""
+
+
 class LinkedInExtractor:
     """Extractor for LinkedIn post comments and reactions using Voyager API with HTML fallback."""
 
@@ -97,6 +113,64 @@ class LinkedInExtractor:
             public_identifier=public_id,
         )
 
+    def extract_reactions_from_html(self, post: PostEntity, html: Optional[str] = None) -> Tuple[List[ReactionItem], int]:
+        """
+        Fallback parser that extracts public reactions stats from the HTML page.
+        Returns (reactions_list, public_likes_count).
+        """
+        if not html:
+            try:
+                resp = httpx.get(
+                    post.original_url,
+                    headers={
+                        "User-Agent": DEFAULT_USER_AGENT,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                    },
+                    timeout=15.0,
+                    follow_redirects=True,
+                )
+                html = resp.text
+            except Exception as e:
+                console.print(f"[yellow]Failed to fetch HTML for public reactions: {e}[/yellow]")
+                return [], 0
+
+        public_likes = 0
+        matches = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+        for raw in matches:
+            try:
+                data = json.loads(raw.strip())
+                stats = data.get("interactionStatistic", [])
+                if isinstance(stats, dict):
+                    stats = [stats]
+                for s in stats:
+                    if "LikeAction" in s.get("interactionType", ""):
+                        public_likes = max(public_likes, s.get("userInteractionCount", 0))
+            except Exception:
+                pass
+
+        if public_likes == 0:
+            m = re.search(r'data-test-id="social-actions__reaction-count"[^>]*>\s*(\d+)', html)
+            if m:
+                public_likes = int(m.group(1))
+
+        reactions = []
+        if public_likes > 0:
+            reactions.append(
+                ReactionItem(
+                    reaction_type="LIKE",
+                    reactor=UserProfile(
+                        name=f"Public Reactions ({public_likes} likes)",
+                        headline="[Notice] Detailed reactor list requires login with `li_at` cookie. Total likes detected on public post.",
+                        profile_url=post.original_url,
+                        public_identifier="",
+                    ),
+                    post_urn=post.activity_urn or post.urn,
+                )
+            )
+
+        return reactions, public_likes
+
     def extract_reactions(
         self,
         post: PostEntity,
@@ -114,73 +188,84 @@ class LinkedInExtractor:
         candidate_urns = self._get_candidate_urns(post)
         active_urn = candidate_urns[0]
 
-        while True:
-            url = f"{LINKEDIN_VOYAGER_BASE}/feed/reactions"
-            params = {
-                "count": count,
-                "start": start,
-                "entityUrn": active_urn,
-                "reactionType": reaction_type,
-            }
+        has_auth = bool(self.cookies and self.cookies.get("li_at"))
 
-            try:
-                resp = self.session.get(url, params=params)
-                if resp.status_code in (301, 302, 303, 307, 401, 403):
-                    console.print(f"[yellow]Note (HTTP {resp.status_code}): LinkedIn session expired or unauthenticated for reactions list.[/yellow]")
+        if has_auth:
+            while True:
+                url = f"{LINKEDIN_VOYAGER_BASE}/feed/reactions"
+                params = {
+                    "count": count,
+                    "start": start,
+                    "entityUrn": active_urn,
+                }
+                if reaction_type and reaction_type.upper() != "ALL":
+                    params["reactionType"] = reaction_type.upper()
+
+                try:
+                    resp = self.session.get(url, params=params)
+                    if resp.status_code in (301, 302, 303, 307, 401, 403):
+                        console.print(f"[yellow]Note (HTTP {resp.status_code}): LinkedIn session unauthenticated for reactions list.[/yellow]")
+                        break
+                    if resp.status_code in (400, 404):
+                        curr_idx = candidate_urns.index(active_urn)
+                        if curr_idx + 1 < len(candidate_urns):
+                            active_urn = candidate_urns[curr_idx + 1]
+                            continue
+                        break
+
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception as e:
+                    console.print(f"[red]Error fetching reactions via API: {e}[/red]")
                     break
-                if resp.status_code in (400, 404):
-                    curr_idx = candidate_urns.index(active_urn)
-                    if curr_idx + 1 < len(candidate_urns):
-                        active_urn = candidate_urns[curr_idx + 1]
-                        continue
+
+                elements = data.get("elements", [])
+                if not elements:
+                    elements = [
+                        item for item in data.get("included", [])
+                        if "reactionType" in item or "reactionTypeV2" in item
+                    ]
+
+                if not elements:
                     break
 
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as e:
-                console.print(f"[red]Error fetching reactions: {e}[/red]")
-                break
-
-            elements = data.get("elements", [])
-            if not elements:
-                elements = [
-                    item for item in data.get("included", [])
-                    if "reactionType" in item or "reactionTypeV2" in item
-                ]
-
-            if not elements:
-                break
-
-            for el in elements:
-                r_type = el.get("reactionType") or el.get("reactionTypeV2") or "LIKE"
-                reactor_data = (
-                    el.get("reactor", {}).get("miniProfile")
-                    or el.get("reactor", {}).get("com.linkedin.voyager.feed.MemberActor", {}).get("miniProfile")
-                    or el.get("reactor", {})
-                )
-                user = self._parse_mini_profile(reactor_data)
-                
-                reactions.append(
-                    ReactionItem(
-                        reaction_type=r_type,
-                        reactor=user,
-                        created_time_ms=el.get("createdAt"),
-                        post_urn=active_urn,
+                for el in elements:
+                    r_type = el.get("reactionType") or el.get("reactionTypeV2") or "LIKE"
+                    reactor_data = (
+                        el.get("reactor", {}).get("miniProfile")
+                        or el.get("reactor", {}).get("com.linkedin.voyager.feed.MemberActor", {}).get("miniProfile")
+                        or el.get("reactor", {})
                     )
-                )
+                    user = self._parse_mini_profile(reactor_data)
+                    
+                    reactions.append(
+                        ReactionItem(
+                            reaction_type=r_type,
+                            reactor=user,
+                            created_time_ms=el.get("createdAt"),
+                            post_urn=active_urn,
+                        )
+                    )
 
-                if limit > 0 and len(reactions) >= limit:
-                    return reactions[:limit]
+                    if limit > 0 and len(reactions) >= limit:
+                        return reactions[:limit]
 
-            start += len(elements)
-            time.sleep(REQUEST_DELAY)
+                start += len(elements)
+                time.sleep(REQUEST_DELAY)
+
+        # Fallback to public HTML reactions if API returned 0
+        if not reactions:
+            console.print("[cyan]Checking public page for reactions...[/cyan]")
+            html_reactions, _ = self.extract_reactions_from_html(post)
+            reactions = html_reactions
 
         return reactions
 
     def extract_comments_from_html(self, post: PostEntity) -> List[CommentItem]:
         """
-        Fallback parser that extracts public comments from JSON-LD schema on public post page.
-        Works even without cookies!
+        Fallback parser that extracts public comments from JSON-LD schema & HTML DOM.
+        Captures commenter name, full profile URL (https://www.linkedin.com/in/...),
+        avatar, and comment text.
         """
         if not post.original_url.startswith("http"):
             return []
@@ -199,6 +284,45 @@ class LinkedInExtractor:
             )
             html = resp.text
 
+            # 1. Map author names to profile URLs and avatars from HTML DOM
+            author_map: Dict[str, Dict[str, str]] = {}
+            author_links = re.findall(
+                r'<a[^>]+href="([^"]*(?:linkedin\.com/in/[^"]+|/in/[^"]+))"[^>]*>(.*?)</a>',
+                html, re.DOTALL
+            )
+            for href, inner in author_links:
+                is_comment = (
+                    "comment_actor" in href
+                    or "comment__author" in inner
+                    or "comment__author" in href
+                    or "comment" in href
+                )
+                clean_name = re.sub(r'<[^>]+>', '', inner).strip()
+                if clean_name and not clean_name.lower().startswith("view profile"):
+                    profile_url, vanity = clean_linkedin_profile_url(href)
+                    author_entry = {
+                        "name": clean_name,
+                        "profile_url": profile_url,
+                        "public_identifier": vanity,
+                        "avatar_url": "",
+                    }
+                    if is_comment or clean_name.lower() not in author_map:
+                        author_map[clean_name.lower()] = author_entry
+
+            avatar_links = re.findall(
+                r'<a[^>]+href="([^"]*(?:linkedin\.com/in/[^"]+|/in/[^"]+))"[^>]*>.*?data-delayed-url="([^"]+)"',
+                html, re.DOTALL
+            )
+            for href, avatar_url in avatar_links:
+                _, vanity = clean_linkedin_profile_url(href)
+                for k, v in author_map.items():
+                    if v.get("public_identifier") == vanity:
+                        v["avatar_url"] = avatar_url
+
+            dom_comment_urns = re.findall(r'data-semaphore-content-urn="([^"]+)"', html)
+            valid_comment_urns = [u for u in dom_comment_urns if "comment" in u]
+
+            # 2. Parse comments from JSON-LD
             matches = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
             for raw in matches:
                 try:
@@ -213,17 +337,36 @@ class LinkedInExtractor:
                         date_pub = c.get("datePublished", "")
                         likes_cnt = c.get("interactionStatistic", {}).get("userInteractionCount", 0)
 
+                        author_info = author_map.get(name.lower())
+                        if not author_info:
+                            if len(author_map) == 1:
+                                author_info = list(author_map.values())[0]
+                            else:
+                                for k, v in author_map.items():
+                                    if name.lower() in k or k in name.lower():
+                                        author_info = v
+                                        break
+
+                        profile_url = author_info["profile_url"] if author_info else ""
+                        avatar_url = author_info.get("avatar_url", "") if author_info else ""
+                        public_id = author_info.get("public_identifier", "") if author_info else ""
+
                         author = UserProfile(
                             name=name,
                             headline="",
-                            profile_url="",
-                            avatar_url="",
-                            public_identifier="",
+                            profile_url=profile_url,
+                            avatar_url=avatar_url,
+                            public_identifier=public_id,
+                        )
+
+                        comment_urn = (
+                            valid_comment_urns[idx] if idx < len(valid_comment_urns)
+                            else f"public_comment_{idx + 1}"
                         )
 
                         html_comments.append(
                             CommentItem(
-                                comment_id=f"public_comment_{idx + 1}",
+                                comment_id=comment_urn,
                                 author=author,
                                 text=text.strip(),
                                 created_at_desc=date_pub,
@@ -239,6 +382,7 @@ class LinkedInExtractor:
             console.print(f"[yellow]Public HTML fallback note: {e}[/yellow]")
 
         return html_comments
+
 
     def extract_comments(
         self,
@@ -368,10 +512,29 @@ class LinkedInExtractor:
             reactions = self.extract_reactions(post, limit=reactions_limit)
             console.print(f"[green][OK] Found {len(reactions)} reactions[/green]")
 
+        # Detect if reactions came from public aggregate fallback
+        is_public_reaction = any("Public Reactions" in r.reactor.name for r in reactions)
+        notes = None
+        public_likes = 0
+        if is_public_reaction:
+            for r in reactions:
+                m = re.search(r'\((\d+)\s+likes\)', r.reactor.name)
+                if m:
+                    public_likes = int(m.group(1))
+            notes = (
+                f"Public Post Stats: {public_likes} likes found. "
+                "Notice: LinkedIn only displays individual reactor profile links to logged-in users. Configure your `li_at` cookie to scrape the full reactor profiles list."
+            )
+        elif not reactions and include_reactions:
+            notes = "No reactions found. If this post has reactions, configure your `li_at` cookie to access them."
+
         return ExtractionResult(
             post=post,
             total_comments=len(comments),
             total_reactions=len(reactions),
+            public_likes_count=public_likes,
+            notes=notes,
             comments=comments,
             reactions=reactions,
         )
+

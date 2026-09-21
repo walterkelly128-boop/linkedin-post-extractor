@@ -105,13 +105,13 @@ async def extract_data(payload: ExtractPayload):
         if "JSESSIONID" not in cookies:
             cookies["JSESSIONID"] = '"ajax:0123456789012345678"'
             
-    if not cookies or "li_at" not in cookies or not cookies["li_at"]:
-        raise HTTPException(
-            status_code=401,
-            detail="No LinkedIn session cookie found. Please enter your `li_at` cookie in 'Configure Cookie' first."
-        )
+    # If li_at is missing, extractor will run in public fallback mode (extracting public comments & like counts)
+    has_cookie = bool(cookies and cookies.get("li_at"))
+    if not has_cookie:
+        cookies = {}
 
     extractor = LinkedInExtractor(cookies=cookies)
+
     try:
         result = extractor.extract_all(
             post=post,

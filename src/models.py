@@ -47,5 +47,7 @@ class ExtractionResult(BaseModel):
     post: PostEntity
     total_comments: int = 0
     total_reactions: int = 0
+    public_likes_count: int = 0
+    notes: Optional[str] = None
     comments: List[CommentItem] = Field(default_factory=list)
     reactions: List[ReactionItem] = Field(default_factory=list)
