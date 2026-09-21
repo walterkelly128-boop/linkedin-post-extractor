@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-$profile = "E:\linkedin-chrome-profile"
+$profile = Join-Path $env:USERPROFILE "linkedin-chrome-profile"
 $chromePort = 9222
 $bridgePort = 8765
 $bridgeExe = Join-Path $PSScriptRoot "dist\chrome-bridge.exe"
