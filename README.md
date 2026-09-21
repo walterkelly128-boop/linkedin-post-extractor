@@ -204,154 +204,84 @@ docker compose up -d
 如果登录状态已经保存，不需要重新登录；`outputs/session.json` 会通过现有 volume 持久化。
 
 
-## 本地 Chrome 已登录模式
+## 本地 Chrome 已登录模式（推荐）
 
-现在 Web 控制台默认优先连接本机已经登录 LinkedIn 的 Chrome，通过 Chrome DevTools Protocol（CDP）直接操作浏览器页面。这样不需要把 `li_at` 复制到程序里。
-
-### Windows + Docker Desktop
-
-Chrome 136 及以上版本要求远程调试使用独立的非默认 `user-data-dir`。建议使用项目专用 Chrome 配置目录；第一次启动后登录 LinkedIn，以后保持该 Chrome 会话即可。
-
-先关闭正在运行的专用 Chrome 实例，然后 PowerShell 执行：
-
-```powershell
-$chrome = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
-& $chrome --remote-debugging-port=9222 --user-data-dir="E:\linkedin-chrome-profile"
-```
-
-如果 Chrome 安装在当前用户目录，可以尝试：
-
-```powershell
-$chrome = "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-& $chrome --remote-debugging-port=9222 --user-data-dir="E:\linkedin-chrome-profile"
-```
-
-第一次启动该窗口后：
-
-1. 在这个 Chrome 中打开 LinkedIn。
-2. 正常登录你的 LinkedIn 账号。
-3. 保持 Chrome 不要关闭。
-4. 浏览器地址栏打开 `http://127.0.0.1:9222/json/version`，如果看到 JSON，说明 CDP 已开启。
-5. 回到 `http://localhost:8000`，勾选「优先使用本机已登录 Chrome」。
-6. 粘贴 LinkedIn 帖子 URL，点击「Start Extraction」。
-
-程序会自动打开帖子页面，尝试读取点赞者和评论者的 `/in/...` 主页 URL，并自动导出 Excel/CSV/JSON。
-
-### Docker 更新
-
-```powershell
-cd E:\linkedin-post-extractor
-git pull origin main
-docker compose down
-docker compose build --no-cache
-docker compose up -d
-```
-
-如果已经有镜像并且只是后续普通代码更新：
-
-```powershell
-git pull origin main
-docker compose up -d --build
-```
-
-不要删除 `outputs`，其中包含持久化的 `session.json`。
-
-如果本地 Chrome CDP 暂时不可用，程序会自动回退到现有的 `li_at` / Voyager / Playwright 路径。
-
-
-## Windows 本地 Chrome 模式
-
-如果 Docker 内直接通过 CDP 连接 Windows Chrome 时出现 `connect_over_cdp timeout`，现在可以使用 **Chrome Bridge**。
+由于新版 Chrome 的 CDP 在 Docker -> Windows 主机连接时可能出现 `connect_over_cdp timeout`，现在默认使用 **Windows Chrome Bridge**。
 
 工作方式：
 
-```
-Windows 已登录 Chrome
-        ↓ CDP 127.0.0.1:9222
+Windows 已登录 Chrome :9222
+        ↓ 本机 CDP
 Windows Chrome Bridge :8765
         ↓ HTTP
 Docker Extractor :8000
-```
 
-LinkedIn 登录会话始终保留在 Windows Chrome 中，Docker 不需要复制 `li_at`。
+这样 LinkedIn 登录会话始终留在 Windows Chrome 中，Docker 不需要复制 `li_at`。
 
-### 1. 启动专用 Chrome
+### 推荐：直接使用 Windows EXE
 
-关闭专门用于本工具的 Chrome 后，在 PowerShell 执行：
+不需要在 Windows 安装 Python。
 
-```powershell
-$chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+1. 打开 GitHub Actions。
+2. 运行 **Build Windows Chrome Bridge**。
+3. 下载工件 **chrome-bridge-windows**。
+4. 解压得到 `chrome-bridge.exe`。
+5. 放到项目目录的 `dist\chrome-bridge.exe`。
 
-& $chrome `
-  --remote-debugging-port=9222 `
-  --remote-debugging-address=0.0.0.0 `
-  --remote-allow-origins="*" `
-  --user-data-dir="E:\linkedin-chrome-profile"
-```
-
-第一次打开后，在这个 Chrome 窗口登录 LinkedIn。
-
-### 2. Windows 安装 Bridge 依赖
-
-在本仓库根目录执行：
+然后 PowerShell：
 
 ```powershell
-py -3 -m venv .venv-bridge
-.\.venv-bridge\Scripts\Activate.ps1
-python -m pip install -r bridge_requirements.txt
-python -m playwright install chromium
+.\start_chrome_bridge.ps1
 ```
 
-### 3. 启动 Chrome Bridge
+脚本会自动启动专用 Chrome 和 Bridge。
 
-保持上面的 Chrome 开启，再执行：
+第一次启动专用 Chrome 后，在该 Chrome 中登录 LinkedIn。以后继续使用同一个 `E:\linkedin-chrome-profile` 配置目录即可。
 
-```powershell
-$env:LOCAL_CHROME_CDP_URL="http://127.0.0.1:9222"
-$env:CHROME_BRIDGE_HOST="0.0.0.0"
-$env:CHROME_BRIDGE_PORT="8765"
-python bridge_server.py
-```
+### Docker
 
-看到：
+项目 `.env`：
 
-```
-Chrome Bridge listening on http://0.0.0.0:8765
-Using local Chrome CDP: http://127.0.0.1:9222
-```
-
-即可。
-
-### 4. Docker 配置
-
-`.env` 增加：
-
-```
+```text
 CHROME_BRIDGE_URL=http://host.docker.internal:8765
 ```
 
-如果设置了 `CHROME_BRIDGE_TOKEN`，Windows Bridge 和 Docker 的 `.env` 必须使用相同值。
-
-然后重新构建：
+然后：
 
 ```powershell
-docker compose down
 docker compose up -d --build
 ```
 
-### 5. 测试 Bridge
-
-Windows 本机：
+测试：
 
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:8765/health"
-```
-
-Docker：
-
-```powershell
 docker compose exec extractor python -c "import urllib.request; print(urllib.request.urlopen('http://host.docker.internal:8765/health', timeout=10).read().decode())"
 ```
 
-返回 `ok: true` 后，在 `http://localhost:8000` 勾选「优先使用本机已登录 Chrome」并输入 LinkedIn 帖子 URL。
+两个测试都应该返回 `ok: true`。
+
+打开 `http://localhost:8000`，勾选「优先使用本机已登录 Chrome」，输入 LinkedIn 帖子 URL。
+
+### 本地构建 EXE（可选）
+
+如果 Windows 已安装完整 Python，可以执行：
+
+```powershell
+.\build_bridge.ps1
+```
+
+生成：
+
+```
+dist\chrome-bridge.exe
+```
+
+完整说明见 `BRIDGE_WINDOWS.md`。
+
+### 安全
+
+Bridge 为了让 Docker Desktop 可以访问，默认监听 `0.0.0.0:8765`。建议只在本机使用，不要把 8765 端口暴露到公网。
+
+如果需要额外保护，可在 Windows Bridge 和 Docker `.env` 中设置相同的 `CHROME_BRIDGE_TOKEN`。
 
