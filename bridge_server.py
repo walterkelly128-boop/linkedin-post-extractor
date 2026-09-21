@@ -65,12 +65,13 @@ async def inspect(
     if not url:
         raise HTTPException(status_code=400, detail="LinkedIn post URL 不能为空。")
     try:
-        from src.chrome_browser import _resolve_cdp_websocket_url
         from playwright.async_api import async_playwright
-        resolved = await _resolve_cdp_websocket_url(LOCAL_CDP_URL, timeout_seconds=15)
+        # This process runs on Windows next to Chrome, so connect directly to
+        # the local CDP endpoint. The Docker-specific resolver must not be used
+        # here because it rewrites hostnames for container networking.
         async with async_playwright() as p:
             browser = await p.chromium.connect_over_cdp(
-                resolved, headers={"Host": "127.0.0.1:9222"}, timeout=30000
+                LOCAL_CDP_URL, timeout=30000
             )
             context = browser.contexts[0]
             page = next((x for x in context.pages if "linkedin.com" in x.url), None)
