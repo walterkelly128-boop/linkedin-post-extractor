@@ -301,13 +301,35 @@ async def extract_with_local_chrome(
                     break
 
             if not clicked:
+                # Prefer the numeric reaction-count control. Clicking the
+                # generic "React" button only changes the current user's
+                # reaction and does not open the list of people.
+                count_candidates = page.locator("button, a, span, div").filter(
+                    has_text=re.compile(r"\\b\\d+\\s+reactions?\\b", re.I)
+                )
+                count = await count_candidates.count()
+                for i in range(min(count, 20)):
+                    try:
+                        item = count_candidates.nth(i)
+                        if await item.is_visible():
+                            await item.click(timeout=4000)
+                            clicked = True
+                            break
+                    except Exception:
+                        continue
+
+            if not clicked:
                 candidates = page.locator("button, a").filter(
-                    has_text=re.compile(r"\breactions?\b", re.I)
+                    has_text=re.compile(r"\\breactions?\\b", re.I)
                 )
                 count = await candidates.count()
                 for i in range(min(count, 10)):
                     try:
                         item = candidates.nth(i)
+                        label = (await item.get_attribute("aria-label") or "").lower()
+                        text_value = (await item.inner_text()).strip().lower()
+                        if "react" == text_value or label == "react":
+                            continue
                         if await item.is_visible():
                             await item.click(timeout=4000)
                             clicked = True
@@ -321,7 +343,15 @@ async def extract_with_local_chrome(
                     f"当前页面：{page.url}"
                 )
 
-            await page.wait_for_timeout(1200)
+            await page.wait_for_timeout(1800)
+
+            dialogs = page.locator('div[role="dialog"]')
+            if await dialogs.count():
+                try:
+                    await dialogs.last.wait_for(state="visible", timeout=5000)
+                except Exception:
+                    pass
+
             seen = set()
             stagnant = 0
             last = 0
