@@ -40,3 +40,12 @@ CHROME_CDP_URL = os.getenv(
     "http://host.docker.internal:9222",
 ).strip()
 CHROME_CDP_TIMEOUT = float(os.getenv("CHROME_CDP_TIMEOUT", "15").strip() or "15")
+
+# Docker calls the Windows-side bridge instead of trying to attach to Chrome
+# directly from inside the container. The bridge runs Playwright locally on
+# Windows, where Chrome's CDP loopback restrictions do not apply.
+CHROME_BRIDGE_URL = os.getenv(
+    "CHROME_BRIDGE_URL",
+    "http://host.docker.internal:8765",
+).strip().rstrip("/")
+CHROME_BRIDGE_TOKEN = os.getenv("CHROME_BRIDGE_TOKEN", "").strip()
