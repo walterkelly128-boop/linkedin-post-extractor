@@ -11,6 +11,7 @@ WORKDIR /app
 # Install runtime dependencies
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
     httpx>=0.24.0 \
+    playwright>=1.40.0 \
     pydantic>=2.0.0 \
     rich>=13.0.0 \
     typer>=0.9.0 \
@@ -19,6 +20,9 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
     fastapi>=0.100.0 \
     uvicorn>=0.23.0 \
     jinja2>=3.1.0
+
+# Chromium is required for the authenticated LinkedIn browser fallback.
+RUN playwright install --with-deps chromium
 
 # Copy source code, templates and entrypoints
 COPY src/ ./src/
