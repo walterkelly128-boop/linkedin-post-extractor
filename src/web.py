@@ -13,7 +13,7 @@ from .exporter import export_to_excel, export_to_csv, export_to_json
 from .config import BASE_DIR, OUTPUT_DIR, SESSION_FILE
 from .models import ExtractionResult, ReactionItem, UserProfile
 from .chrome_browser import extract_with_local_chrome
-from .config import CHROME_CDP_URL
+from .config import CHROME_BRIDGE_URL, CHROME_BRIDGE_TOKEN
 
 app = FastAPI(
     title="LinkedIn Post Comments & Reactions Extractor",
@@ -138,18 +138,44 @@ async def extract_data(payload: ExtractPayload):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Preferred mode: connect to the user's already logged-in local Chrome.
-    # This does not copy or store Chrome cookies in the application.
+    # Preferred mode: ask the Windows Chrome Bridge to use the user's
+    # already-logged-in local Chrome. The LinkedIn browser session never
+    # leaves Windows and no li_at cookie is copied into Docker.
     if payload.use_local_chrome:
         try:
-            result, _ = await extract_with_local_chrome(
-                post=post,
-                cdp_url=CHROME_CDP_URL,
-                include_comments=payload.include_comments,
-                include_reactions=payload.include_reactions,
-                comments_limit=payload.limit_comments,
-                reactions_limit=payload.limit_reactions,
-            )
+            import httpx
+
+            headers = {}
+            if CHROME_BRIDGE_TOKEN:
+                headers["X-Bridge-Token"] = CHROME_BRIDGE_TOKEN
+
+            bridge_payload = {
+                "url": post.original_url,
+                "include_comments": payload.include_comments,
+                "include_reactions": payload.include_reactions,
+                "limit_comments": payload.limit_comments,
+                "limit_reactions": payload.limit_reactions,
+            }
+
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                response = await client.post(
+                    f"{CHROME_BRIDGE_URL}/extract",
+                    json=bridge_payload,
+                    headers=headers,
+                )
+
+            if response.status_code >= 400:
+                try:
+                    detail = response.json().get("detail", response.text)
+                except Exception:
+                    detail = response.text
+                raise RuntimeError(
+                    f"Chrome Bridge 返回 HTTP {response.status_code}: {detail}"
+                )
+
+            data = response.json()
+            result = ExtractionResult(**data["result"])
+
             try:
                 export_to_excel(result)
                 export_to_csv(result)
@@ -157,13 +183,13 @@ async def extract_data(payload: ExtractPayload):
             except Exception as err:
                 print(f"Warning: Failed to export local Chrome results: {err}")
             return result
-        except Exception as chrome_err:
-            print(f"[Local Chrome] {chrome_err}")
+        except Exception as bridge_err:
+            print(f"[Chrome Bridge] {bridge_err}")
             raise HTTPException(
                 status_code=502,
                 detail=(
-                    "本机 Chrome 已登录模式连接失败："
-                    f"{type(chrome_err).__name__}: {chrome_err}"
+                    "Windows 本地 Chrome Bridge 连接/提取失败："
+                    f"{type(bridge_err).__name__}: {bridge_err}"
                 ),
             )
 
