@@ -5,14 +5,17 @@ from .models import PostEntity, ReactionItem, CommentItem, UserProfile, Extracti
 from .extractor import clean_linkedin_profile_url
 
 
-def _profile_from_link(link, card_text=""):
-    href = link.get_attribute("href") or ""
+async def _profile_from_link(link, card_text=""):
+    href = await link.get_attribute("href") or ""
     if "/in/" not in href:
         return None
     url, vanity = clean_linkedin_profile_url(href)
     if not vanity:
         return None
-    name = (link.inner_text() or "").strip()
+    try:
+        name = (await link.inner_text()).strip()
+    except Exception:
+        name = ""
     lines = [x.strip() for x in card_text.splitlines() if x.strip()]
     if not name and lines:
         name = lines[0]
@@ -31,15 +34,21 @@ def _profile_from_link(link, card_text=""):
     )
 
 
-def _reaction_links(page, seen, post, limit):
+async def _reaction_links(page, seen, post, limit):
     results = []
     dialogs = page.locator('div[role="dialog"]')
-    root = dialogs.last if dialogs.count() else page
+    root = dialogs.last if await dialogs.count() else page
     links = root.locator('a[href*="/in/"]')
-    for i in range(links.count()):
+    count = await links.count()
+    for i in range(count):
         try:
             link = links.nth(i)
-            profile = _profile_from_link(link, link.locator("xpath=..").inner_text())
+            parent = link.locator("xpath=..")
+            try:
+                card_text = await parent.inner_text()
+            except Exception:
+                card_text = ""
+            profile = await _profile_from_link(link, card_text)
             if not profile or profile.profile_url in seen:
                 continue
             seen.add(profile.profile_url)
@@ -64,26 +73,29 @@ def _comment_cards(page):
         "li.comments-comment-item",
         "[data-test-id='comments-comment-item']",
     ]
-    for selector in selectors:
-        loc = page.locator(selector)
-        if loc.count():
-            return loc
-    return None
+    return selectors
 
 
-def _extract_comments_from_page(page, post, seen, limit):
+async def _extract_comments_from_page(page, post, seen, limit):
     comments = []
-    cards = _comment_cards(page)
+    cards = None
+    for selector in _comment_cards(page):
+        loc = page.locator(selector)
+        if await loc.count():
+            cards = loc
+            break
     if cards is None:
         return comments
 
-    for i in range(cards.count()):
+    count = await cards.count()
+    for i in range(count):
         try:
             card = cards.nth(i)
             links = card.locator('a[href*="/in/"]')
-            if not links.count():
+            if not await links.count():
                 continue
-            profile = _profile_from_link(links.first, card.inner_text())
+            card_text = await card.inner_text()
+            profile = await _profile_from_link(links.first, card_text)
             if not profile or profile.profile_url in seen:
                 continue
             seen.add(profile.profile_url)
@@ -97,13 +109,13 @@ def _extract_comments_from_page(page, post, seen, limit):
             ]
             for selector in text_selectors:
                 node = card.locator(selector)
-                if node.count():
-                    text = (node.first.inner_text() or "").strip()
+                if await node.count():
+                    text = (await node.first.inner_text()).strip()
                     if text:
                         break
 
             if not text:
-                lines = [x.strip() for x in card.inner_text().splitlines() if x.strip()]
+                lines = [x.strip() for x in card_text.splitlines() if x.strip()]
                 if profile.name in lines:
                     try:
                         idx = lines.index(profile.name)
@@ -131,7 +143,7 @@ def _extract_comments_from_page(page, post, seen, limit):
     return comments
 
 
-def extract_with_local_chrome(
+async def extract_with_local_chrome(
     post: PostEntity,
     cdp_url: str,
     include_comments: bool = True,
@@ -141,15 +153,19 @@ def extract_with_local_chrome(
 ) -> Tuple[ExtractionResult, str]:
     """
     Connect to an already logged-in local Chrome through Chrome DevTools Protocol.
-    The Chrome process owns the LinkedIn session; no li_at is copied into the app.
+    Uses Playwright Async API because FastAPI/Uvicorn runs an asyncio event loop.
+    Chrome owns the LinkedIn session; no li_at is copied into the app.
     """
     try:
-        from playwright.sync_api import sync_playwright
+        from playwright.async_api import async_playwright
     except ImportError as exc:
         raise RuntimeError("Playwright is not installed in the container.") from exc
 
-    with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(cdp_url, timeout=15000)
+    async with async_playwright() as p:
+        browser = await p.chromium.connect_over_cdp(
+            cdp_url,
+            timeout=int(float(15000)),
+        )
         contexts = browser.contexts
         if not contexts:
             raise RuntimeError("Chrome CDP 已连接，但没有可用的浏览器上下文。")
@@ -166,13 +182,17 @@ def extract_with_local_chrome(
                 pass
 
         if page is None:
-            page = context.new_page()
+            page = await context.new_page()
 
-        page.goto(post.original_url, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(3000)
+        await page.goto(post.original_url, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(3000)
 
-        if "/login" in page.url or "/authwall" in page.url:
-            raise RuntimeError("本地 Chrome 没有保持 LinkedIn 登录状态，请先在该 Chrome 窗口登录 LinkedIn。")
+        current_url = page.url
+        if "/login" in current_url or "/authwall" in current_url:
+            raise RuntimeError(
+                "本地 Chrome 已连接，但 LinkedIn 当前页面处于登录/安全墙页面。"
+                "请确认该 Chrome 窗口本身可以正常打开 LinkedIn 帖子。"
+            )
 
         reactions: List[ReactionItem] = []
         comments: List[CommentItem] = []
@@ -188,11 +208,12 @@ def extract_with_local_chrome(
             clicked = False
             for selector in selectors:
                 loc = page.locator(selector)
-                for i in range(min(loc.count(), 8)):
+                count = await loc.count()
+                for i in range(min(count, 8)):
                     try:
                         item = loc.nth(i)
-                        if item.is_visible():
-                            item.click(timeout=4000)
+                        if await item.is_visible():
+                            await item.click(timeout=4000)
                             clicked = True
                             break
                     except Exception:
@@ -201,77 +222,95 @@ def extract_with_local_chrome(
                     break
 
             if not clicked:
-                candidates = page.locator("button, a").filter(has_text=re.compile(r"\breactions?\b", re.I))
-                for i in range(min(candidates.count(), 10)):
+                candidates = page.locator("button, a").filter(
+                    has_text=re.compile(r"\breactions?\b", re.I)
+                )
+                count = await candidates.count()
+                for i in range(min(count, 10)):
                     try:
                         item = candidates.nth(i)
-                        if item.is_visible():
-                            item.click(timeout=4000)
+                        if await item.is_visible():
+                            await item.click(timeout=4000)
                             clicked = True
                             break
                     except Exception:
                         continue
 
-            if clicked:
-                page.wait_for_timeout(1200)
-                seen = set()
-                stagnant = 0
-                last = 0
-                for _ in range(35):
-                    reactions.extend(_reaction_links(page, seen, post, reactions_limit))
-                    if reactions_limit > 0 and len(reactions) >= reactions_limit:
-                        break
-                    dialogs = page.locator('div[role="dialog"]')
-                    if dialogs.count():
-                        dialog = dialogs.last
-                        try:
-                            dialog.evaluate(
-                                """el => {
-                                  const nodes=[el,...el.querySelectorAll('*')];
-                                  const target=nodes.find(n=>n.scrollHeight>n.clientHeight+100);
-                                  if(target) target.scrollTop=target.scrollHeight;
-                                  else el.scrollTop=el.scrollHeight;
-                                }"""
-                            )
-                        except Exception:
-                            page.mouse.wheel(0, 1800)
-                    else:
-                        page.mouse.wheel(0, 1800)
-                    page.wait_for_timeout(800)
-                    if len(reactions) == last:
-                        stagnant += 1
-                    else:
-                        stagnant = 0
-                        last = len(reactions)
-                    if stagnant >= 4:
-                        break
+            if not clicked:
+                raise RuntimeError(
+                    f"已连接本地 Chrome，但在 LinkedIn 帖子页面没有找到“Reactions/点赞”入口。"
+                    f"当前页面：{page.url}"
+                )
 
-                # Close reaction dialog so comments are accessible.
-                try:
-                    page.keyboard.press("Escape")
-                    page.wait_for_timeout(500)
-                except Exception:
-                    pass
+            await page.wait_for_timeout(1200)
+            seen = set()
+            stagnant = 0
+            last = 0
+
+            for _ in range(35):
+                reactions.extend(await _reaction_links(page, seen, post, reactions_limit))
+                if reactions_limit > 0 and len(reactions) >= reactions_limit:
+                    break
+
+                dialogs = page.locator('div[role="dialog"]')
+                if await dialogs.count():
+                    dialog = dialogs.last
+                    try:
+                        await dialog.evaluate(
+                            """el => {
+                              const nodes=[el,...el.querySelectorAll('*')];
+                              const target=nodes.find(n=>n.scrollHeight>n.clientHeight+100);
+                              if(target) target.scrollTop=target.scrollHeight;
+                              else el.scrollTop=el.scrollHeight;
+                            }"""
+                        )
+                    except Exception:
+                        await page.mouse.wheel(0, 1800)
+                else:
+                    await page.mouse.wheel(0, 1800)
+
+                await page.wait_for_timeout(800)
+                if len(reactions) == last:
+                    stagnant += 1
+                else:
+                    stagnant = 0
+                    last = len(reactions)
+                if stagnant >= 4:
+                    break
+
+            try:
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(500)
+            except Exception:
+                pass
 
         if include_comments:
-            page.goto(post.original_url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(2500)
-            # Scroll the post into the comments area and allow lazy loading.
+            await page.goto(post.original_url, wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_timeout(2500)
             for _ in range(12):
-                comments = _extract_comments_from_page(
-                    page, post, {c.author.profile_url for c in comments}, comments_limit
+                current_seen = {c.author.profile_url for c in comments}
+                new_comments = await _extract_comments_from_page(
+                    page, post, current_seen, comments_limit
                 )
+                existing_urls = {c.author.profile_url for c in comments}
+                for comment in new_comments:
+                    if comment.author.profile_url not in existing_urls:
+                        comments.append(comment)
+                        existing_urls.add(comment.author.profile_url)
                 if comments_limit > 0 and len(comments) >= comments_limit:
                     break
-                page.mouse.wheel(0, 1800)
-                page.wait_for_timeout(900)
+                await page.mouse.wheel(0, 1800)
+                await page.wait_for_timeout(900)
 
         result = ExtractionResult(
             post=post,
             total_comments=len(comments),
             total_reactions=len(reactions),
             public_likes_count=0,
-            notes="✅ 已使用本地 Chrome 已登录会话直接提取点赞者和评论者主页链接。",
+            notes=(
+                f"✅ 已使用本地 Chrome 已登录会话直接提取。"
+                f"点赞者 {len(reactions)} 人，评论者 {len(comments)} 人。"
+            ),
             comments=comments[:comments_limit] if comments_limit > 0 else comments,
             reactions=reactions[:reactions_limit] if reactions_limit > 0 else reactions,
         )
