@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from .parser import parse_post_url
 from .extractor import LinkedInExtractor
-from .auth import get_stored_cookies, save_cookies, verify_linkedin_session
+from .auth import get_stored_cookies, save_cookies, verify_linkedin_session, parse_cookie_input
 from .exporter import export_to_excel, export_to_csv, export_to_json
 from .config import BASE_DIR, OUTPUT_DIR, SESSION_FILE
 from .models import ExtractionResult
@@ -36,7 +36,9 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 class CookiePayload(BaseModel):
-    li_at: str
+    cookie_input: Optional[str] = None
+    li_at: Optional[str] = None
+    jsessionid: Optional[str] = None
 
 
 class ExtractPayload(BaseModel):
@@ -60,9 +62,11 @@ async def get_status():
     cookies = get_stored_cookies()
     has_li_at = bool(cookies.get("li_at"))
     li_at_preview = (cookies.get("li_at", "")[:8] + "...") if has_li_at else ""
+    has_jsessionid = bool(cookies.get("JSESSIONID"))
     is_valid, status_msg, user_name = verify_linkedin_session(cookies) if has_li_at else (False, "未配置 Cookie", None)
     return {
         "configured": has_li_at,
+        "has_jsessionid": has_jsessionid,
         "authenticated": is_valid,
         "status_message": status_msg,
         "user_name": user_name,
@@ -73,31 +77,38 @@ async def get_status():
 
 @app.post("/api/cookie")
 async def update_cookie(payload: CookiePayload):
-    cookie_val = payload.li_at.strip()
-    if not cookie_val:
-        raise HTTPException(status_code=400, detail="Cookie cannot be empty.")
+    raw_input = (payload.cookie_input or payload.li_at or "").strip()
+    if not raw_input and not payload.jsessionid:
+        raise HTTPException(status_code=400, detail="Cookie 输入不能为空。")
 
-    # Save to session.json safely
-    data = [
-        {"name": "li_at", "value": cookie_val},
-        {"name": "JSESSIONID", "value": '"ajax:0123456789012345678"'},
-    ]
+    cookies_dict = parse_cookie_input(raw_input) if raw_input else {}
+    if payload.jsessionid and payload.jsessionid.strip():
+        cookies_dict["JSESSIONID"] = payload.jsessionid.strip()
+
+    if not cookies_dict.get("li_at"):
+        # If user supplied only jsessionid or invalid format
+        stored = get_stored_cookies()
+        if "li_at" in stored:
+            stored.update(cookies_dict)
+            cookies_dict = stored
+        else:
+            raise HTTPException(status_code=400, detail="未能识别到 li_at Cookie。请提供完整的 Cookie 字符串或直接填写 li_at。")
+
     try:
-        save_cookies(data)
+        save_cookies(cookies_dict)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to persist cookie: {e}")
+        raise HTTPException(status_code=500, detail=f"保存 Cookie 失败: {e}")
 
-    # Verify immediately
-    test_cookies = {"li_at": cookie_val, "JSESSIONID": '"ajax:0123456789012345678"'}
-    is_valid, status_msg, user_name = verify_linkedin_session(test_cookies)
+    # Verify immediately with probe
+    is_valid, status_msg, user_name = verify_linkedin_session(cookies_dict)
 
     return {
         "success": True,
         "valid": is_valid,
         "user_name": user_name,
-        "message": status_msg if is_valid else f"Cookie 已保存，但验证提示：{status_msg}。请确保从正常登录的领英标签页中复制最新 li_at。",
+        "has_jsessionid": bool(cookies_dict.get("JSESSIONID")),
+        "message": status_msg,
     }
-
 
 
 @app.post("/api/extract", response_model=ExtractionResult)
@@ -113,11 +124,10 @@ async def extract_data(payload: ExtractPayload):
 
     cookies = get_stored_cookies()
     
-    # If user provided li_at directly in the payload, use it!
+    # If user provided cookie directly in the payload, parse and merge it!
     if payload.li_at and payload.li_at.strip():
-        cookies["li_at"] = payload.li_at.strip()
-        if "JSESSIONID" not in cookies:
-            cookies["JSESSIONID"] = '"ajax:0123456789012345678"'
+        parsed = parse_cookie_input(payload.li_at.strip())
+        cookies.update(parsed)
             
     # If li_at is missing, extractor will run in public fallback mode (extracting public comments & like counts)
     has_cookie = bool(cookies and cookies.get("li_at"))

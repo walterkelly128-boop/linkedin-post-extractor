@@ -182,10 +182,10 @@
         <table class="w-full text-left text-xs sm:text-sm text-slate-600">
           <thead class="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
             <tr>
-              <th class="py-3 px-4">Reactor Profile</th>
-              <th class="py-3 px-4">Headline / Role</th>
-              <th class="py-3 px-4 text-center">Reaction Type</th>
-              <th class="py-3 px-4 text-right">LinkedIn Link</th>
+              <th class="py-3 px-4">Reactor Profile (点赞者)</th>
+              <th class="py-3 px-4">Profile URL (个人主页链接)</th>
+              <th class="py-3 px-4">Headline / Role (头衔职位)</th>
+              <th class="py-3 px-4 text-center">Reaction Type (互动类型)</th>
             </tr>
           </thead>
           <tbody id="reactionsTableBody" class="divide-y divide-slate-100"></tbody>
@@ -196,30 +196,59 @@
   </main>
 
   <!-- Cookie Configuration Modal -->
-  <div id="cookieModal" class="hidden fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+  <div id="cookieModal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4">
       <div class="flex items-center justify-between border-b pb-3 border-slate-100">
         <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
-          <i class="fa-solid fa-shield-halved text-blue-600"></i> Configure LinkedIn Cookie
+          <i class="fa-solid fa-shield-halved text-blue-600"></i> 配置领英 Cookie (获取点赞者及主页)
         </h3>
         <button onclick="toggleCookieModal(false)" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
-      <div class="space-y-3 text-xs sm:text-sm text-slate-600">
-        <p>输入你的领英 <code>li_at</code> 会话 Cookie，用于通过领英官方 API 抓取点赞者（含个人档案主页链接）及深层评论。</p>
-        
-        <div class="bg-blue-50 border border-blue-200 text-blue-800 p-3.5 rounded-lg text-xs leading-relaxed space-y-1">
-          <div class="font-bold mb-1"><i class="fa-solid fa-key"></i> 如何正确获取 <code>li_at</code>：</div>
-          <div>1. 在电脑浏览器打开并正常登录 <a href="https://www.linkedin.com" target="_blank" class="underline font-semibold text-blue-700">linkedin.com</a>。</div>
-          <div>2. 保持网页不要关闭，按 <kbd class="bg-white px-1 py-0.5 border rounded shadow-sm">F12</kbd> 打开开发者工具。</div>
-          <div>3. 切换到 <strong>Application (应用程序)</strong> &rarr; <strong>Cookies</strong> &rarr; <code>https://www.linkedin.com</code>。</div>
-          <div>4. 找到名为 <code>li_at</code> 的 Cookie，双击选中它的值并复制粘贴到下方。</div>
-          <div class="text-rose-700 font-medium pt-1">⚠️ 注意：复制后请勿在网页中点击“退出登录（Sign Out）”，否则领英会立即将该 Cookie 彻底作废！</div>
+      <!-- Modal Tabs -->
+      <div class="flex border-b border-slate-200 text-xs font-medium">
+        <button id="modalTabFullBtn" onclick="switchModalCookieTab('full')" class="pb-2 text-blue-600 border-b-2 border-blue-600 font-semibold px-2">
+          方式一：粘贴完整 Cookie (强烈推荐)
+        </button>
+        <button id="modalTabManualBtn" onclick="switchModalCookieTab('manual')" class="pb-2 text-slate-500 hover:text-slate-700 border-b-2 border-transparent px-2">
+          方式二：分别填写 li_at & JSESSIONID
+        </button>
+      </div>
+
+      <!-- Tab 1: Full Cookie Header -->
+      <div id="modalTabFullContent" class="space-y-3 text-xs text-slate-600">
+        <div class="bg-blue-50 border border-blue-200 text-blue-900 p-3 rounded-lg leading-relaxed space-y-1">
+          <div class="font-bold text-blue-950 mb-1"><i class="fa-solid fa-lightbulb text-amber-500"></i> 最简单且防失效的步骤（10秒搞定）：</div>
+          <div>1. 电脑浏览器登录并打开 <a href="https://www.linkedin.com" target="_blank" class="underline font-semibold text-blue-700">linkedin.com</a>。</div>
+          <div>2. 按 <kbd class="bg-white px-1 py-0.5 border rounded shadow-sm text-slate-800">F12</kbd> 打开开发者工具，点击 <strong>Network (网络)</strong> 标签。</div>
+          <div>3. 刷新页面，在网络请求列表中点击任意请求（如 <code>feed</code> 或 <code>voyager</code>）。</div>
+          <div>4. 在右侧 <strong>Request Headers (请求标头)</strong> 中找到 <code>Cookie:</code>，右键点击 <strong>“复制值 (Copy value)”</strong>。</div>
+          <div>5. 直接粘贴到下方文本框中（程序会自动提取配套的 <code>li_at</code> 与 <code>JSESSIONID</code>，彻底杜绝 CSRF 校验失败）。</div>
+          <div class="text-rose-700 font-semibold pt-1">⚠️ 关键提醒：复制后请勿在网页点击“退出登录（Sign Out）”，否则领英会立即将该会话彻底注销！</div>
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-700 mb-1">LinkedIn <code>li_at</code> Cookie 值:</label>
-          <input type="password" id="modalLiAtInput" placeholder="AQEDAWxxxx..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-500 font-mono">
+          <label class="block font-semibold text-slate-700 mb-1">完整 Cookie 标头或 Cookie-Editor 导出的 JSON:</label>
+          <textarea id="modalCookieHeaderInput" rows="4" placeholder="粘贴 Cookie 字符串，例如: bcookie=&quot;v=2&quot;; JSESSIONID=&quot;ajax:123456&quot;; li_at=AQED...; lidc=&quot;...&quot;" class="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-mono text-[11px]"></textarea>
+        </div>
+      </div>
+
+      <!-- Tab 2: Manual Fields -->
+      <div id="modalTabManualContent" class="hidden space-y-3 text-xs text-slate-600">
+        <div class="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-lg space-y-1 leading-relaxed">
+          <p class="font-bold text-amber-950"><i class="fa-solid fa-triangle-exclamation"></i> 为什么必须同时填写 JSESSIONID？</p>
+          <p>领英 Voyager API 强制校验 <code>JSESSIONID</code> 作为 CSRF Token。如果只填 <code>li_at</code>，领英会判定为跨站请求并主动返回 <code>delete me</code> 注销该 Cookie！</p>
+          <p>两个 Cookie 均可在 F12 &rarr; <strong>Application (应用程序)</strong> &rarr; <strong>Cookies</strong> &rarr; <code>linkedin.com</code> 中找到。</p>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1"><code>li_at</code> (以 AQED 开头):</label>
+          <input type="password" id="modalLiAtInput" placeholder="AQEDAWxxxx..." class="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs">
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1"><code>JSESSIONID</code> (通常形如 &quot;ajax:123456789...&quot;):</label>
+          <input type="text" id="modalJsessionIdInput" placeholder="&quot;ajax:1234567890123456789&quot;" class="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs">
         </div>
       </div>
 
@@ -234,6 +263,7 @@
 
   <script>
     let currentResult = null;
+    let activeModalTab = 'full';
 
     // Check cookie status on load
     window.addEventListener('DOMContentLoaded', checkStatus);
@@ -268,13 +298,47 @@
       document.getElementById('cookieModal').classList.toggle('hidden', !show);
     }
 
-    async function saveCookieFromModal() {
-      const val = document.getElementById('modalLiAtInput').value.trim();
-      if (!val) {
-        alert("请输入有效的 li_at Cookie 字符串。");
-        return;
+    function switchModalCookieTab(tab) {
+      activeModalTab = tab;
+      const fullBtn = document.getElementById('modalTabFullBtn');
+      const manualBtn = document.getElementById('modalTabManualBtn');
+      const fullContent = document.getElementById('modalTabFullContent');
+      const manualContent = document.getElementById('modalTabManualContent');
+
+      if (tab === 'full') {
+        fullContent.classList.remove('hidden');
+        manualContent.classList.add('hidden');
+        fullBtn.className = "pb-2 text-blue-600 border-b-2 border-blue-600 font-semibold px-2";
+        manualBtn.className = "pb-2 text-slate-500 hover:text-slate-700 border-b-2 border-transparent px-2";
+      } else {
+        fullContent.classList.add('hidden');
+        manualContent.classList.remove('hidden');
+        manualBtn.className = "pb-2 text-blue-600 border-b-2 border-blue-600 font-semibold px-2";
+        fullBtn.className = "pb-2 text-slate-500 hover:text-slate-700 border-b-2 border-transparent px-2";
       }
+    }
+
+    async function saveCookieFromModal() {
       const saveBtn = document.getElementById('btnSaveCookieModal');
+      let payload = {};
+
+      if (activeModalTab === 'full') {
+        const fullVal = document.getElementById('modalCookieHeaderInput').value.trim();
+        if (!fullVal) {
+          alert("请输入完整的 Cookie 标头或 JSON 文本。");
+          return;
+        }
+        payload = { cookie_input: fullVal };
+      } else {
+        const liAtVal = document.getElementById('modalLiAtInput').value.trim();
+        const jsessionidVal = document.getElementById('modalJsessionIdInput').value.trim();
+        if (!liAtVal) {
+          alert("请输入 li_at 值。");
+          return;
+        }
+        payload = { li_at: liAtVal, jsessionid: jsessionidVal || undefined };
+      }
+
       saveBtn.disabled = true;
       saveBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 验证中...`;
 
@@ -282,7 +346,7 @@
         const res = await fetch('/api/cookie', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ li_at: val })
+          body: JSON.stringify(payload)
         });
         const text = await res.text();
         let d = {};
@@ -313,7 +377,8 @@
         return;
       }
 
-      const inlineCookie = document.getElementById('inlineLiAt').value.trim();
+      const inlineCookieEl = document.getElementById('inlineLiAt');
+      const inlineCookie = inlineCookieEl ? inlineCookieEl.value.trim() : "";
 
       const btn = document.getElementById('startBtn');
       const notice = document.getElementById('executionNotice');
@@ -402,7 +467,7 @@
                 <a href="${c.author.profile_url}" target="_blank" class="text-xs font-mono text-blue-600 hover:underline max-w-[220px] truncate inline-block" title="${c.author.profile_url}">
                   ${c.author.profile_url}
                 </a>
-                <button onclick="navigator.clipboard.writeText('${c.author.profile_url}'); alert('Copied profile URL!');" class="text-slate-400 hover:text-slate-600 p-1" title="Copy URL">
+                <button onclick="navigator.clipboard.writeText('${c.author.profile_url}'); alert('已复制评论者主页链接！');" class="text-slate-400 hover:text-slate-600 p-1" title="复制主页链接">
                   <i class="fa-regular fa-copy text-xs"></i>
                 </button>
               </div>
@@ -416,7 +481,7 @@
         cBody.appendChild(tr);
       });
 
-      // Render Reactions Table
+      // Render Reactions Table (with Profile URL and Copy button)
       const rBody = document.getElementById('reactionsTableBody');
       rBody.innerHTML = '';
       (data.reactions || []).forEach(r => {
@@ -428,18 +493,34 @@
             <div class="font-semibold text-slate-900">${r.reactor.name}</div>
             ${isPublicReaction ? '<span class="inline-block mt-0.5 px-2 py-0.5 bg-blue-100 text-blue-800 text-[10px] font-semibold rounded">公开统计</span>' : ''}
           </td>
+          <td class="py-3 px-4">
+            ${r.reactor.profile_url && !isPublicReaction ? `
+              <div class="flex items-center gap-1.5">
+                <a href="${r.reactor.profile_url}" target="_blank" class="text-xs font-mono text-blue-600 hover:underline max-w-[220px] truncate inline-block" title="${r.reactor.profile_url}">
+                  ${r.reactor.profile_url}
+                </a>
+                <button onclick="navigator.clipboard.writeText('${r.reactor.profile_url}'); alert('已复制点赞者主页链接！');" class="text-slate-400 hover:text-slate-600 p-1" title="复制主页链接">
+                  <i class="fa-regular fa-copy text-xs"></i>
+                </button>
+              </div>
+            ` : (isPublicReaction ? '<span class="text-xs text-amber-600 font-medium">需有效 Cookie 查看点赞者主页</span>' : '<span class="text-xs text-slate-400">N/A</span>')}
+          </td>
           <td class="py-3 px-4 max-w-sm">
             <div class="text-xs text-slate-600 line-clamp-2">${r.reactor.headline || 'No headline'}</div>
           </td>
           <td class="py-3 px-4 text-center">
             <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold badge-${(r.reaction_type || 'like').toLowerCase()}">${r.reaction_type}</span>
           </td>
-          <td class="py-3 px-4 text-right">
-            ${r.reactor.profile_url ? `<a href="${r.reactor.profile_url}" target="_blank" class="text-xs text-blue-600 hover:underline font-medium"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open</a>` : '<span class="text-xs text-slate-400">N/A</span>'}
-          </td>
         `;
         rBody.appendChild(tr);
       });
+
+      // Auto switch to reactions tab if comments are 0 but reactions exist
+      if (data.total_comments === 0 && data.total_reactions > 0) {
+        switchTab('reactions');
+      } else {
+        switchTab('comments');
+      }
     }
 
     function switchTab(tab) {
