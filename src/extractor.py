@@ -540,14 +540,15 @@ class LinkedInExtractor:
 
             if self.session_invalid:
                 notes = (
-                    f"⚠️ Cookie 验证失效警告：您配置的 `li_at` Cookie 已被领英服务器判定为失效（HTTP 302 / delete me），说明该 Token 已过期或在网页中被注销。"
-                    f"领英平台严格限制仅对有效登录账号展示点赞者详情。系统已为您自动提取公开评论（含主页链接）及公开点赞总数（{public_likes} 个）。"
-                    "解决办法：请在浏览器正常登录领英（请勿点击退出登录），打开 F12 -> Application -> Cookies，复制最新的 `li_at` 值更新到【配置 Cookie】中。"
+                    f"⚠️ 领英会话验证未通过（HTTP 302 / delete me）：领英安全机制拦截了后台请求。"
+                    f"原因分析：您在电脑浏览器中虽已登录，但后台程序未携带与浏览器完全一致的配套指纹（特别是 CSRF Token `JSESSIONID`），或复制后在网页点击了注销。"
+                    f"系统已为您自动提取公开评论（含主页链接）及公开点赞总数（{public_likes} 个）。"
+                    f"👉 解决办法：点击右上角【配置 Cookie】，选择【方式一：粘贴完整 Cookie】，在 Network 标头中复制整串 Cookie 粘贴即可解锁点赞者主页！"
                 )
             else:
                 notes = (
-                    f"💡 公开数据模式：检测到该帖子共有 {public_likes} 个点赞。领英对公开访客隐藏了点赞者的具体名单与主页链接。"
-                    "若需抓取点赞人员的姓名与个人主页 URL，请在上方【配置 Cookie】填入已登录领英账号的有效 li_at。"
+                    f"💡 公开数据模式：检测到该帖子共有 {public_likes} 个点赞。领英严格限制仅允许通过登录会话查看点赞者详情。"
+                    f"👉 解决办法：点击右上角【配置 Cookie】粘贴完整 Cookie，即可解锁点赞人员的姓名与个人主页 URL！"
                 )
         elif not reactions and include_reactions:
             if self.session_invalid:

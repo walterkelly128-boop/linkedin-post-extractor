@@ -503,7 +503,7 @@
                   <i class="fa-regular fa-copy text-xs"></i>
                 </button>
               </div>
-            ` : (isPublicReaction ? '<span class="text-xs text-amber-600 font-medium">需有效 Cookie 查看点赞者主页</span>' : '<span class="text-xs text-slate-400">N/A</span>')}
+            ` : (isPublicReaction ? '<button onclick="toggleCookieModal(true)" class="text-xs text-blue-600 hover:text-blue-800 font-medium underline flex items-center gap-1"><i class="fa-solid fa-key text-[10px]"></i> 点击配置 Cookie 解锁主页</button>' : '<span class="text-xs text-slate-400">N/A</span>')}
           </td>
           <td class="py-3 px-4 max-w-sm">
             <div class="text-xs text-slate-600 line-clamp-2">${r.reactor.headline || 'No headline'}</div>
