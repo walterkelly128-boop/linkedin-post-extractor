@@ -1,9 +1,8 @@
-import os
-import traceback
-from pathlib import Path
-from typing import Optional
+import json
+from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .parser import parse_post_url
@@ -11,12 +10,21 @@ from .extractor import LinkedInExtractor
 from .auth import get_stored_cookies, save_cookies, verify_linkedin_session, parse_cookie_input
 from .exporter import export_to_excel, export_to_csv, export_to_json
 from .config import BASE_DIR, OUTPUT_DIR, SESSION_FILE
-from .models import ExtractionResult
+from .models import ExtractionResult, ReactionItem, UserProfile
 
 app = FastAPI(
     title="LinkedIn Post Comments & Reactions Extractor",
     description="Docker Desktop Web Console for LinkedIn social engagement extraction.",
     version="1.0.0",
+)
+
+# Enable CORS so browser console snippets on linkedin.com can post directly to localhost:8000
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -177,3 +185,119 @@ async def download_file(filename: str):
         filename=filename,
         media_type=media_type,
     )
+
+
+class ReactorInput(BaseModel):
+    name: str
+    profile_url: str
+    headline: Optional[str] = ""
+    reaction_type: Optional[str] = "LIKE"
+
+
+class ImportReactionsPayload(BaseModel):
+    post_url: Optional[str] = None
+    reactors: List[ReactorInput]
+
+
+@app.post("/api/import_reactions", response_model=ExtractionResult)
+async def import_reactions(payload: ImportReactionsPayload):
+    """
+    Import reactor list collected via browser console/helper directly into the dashboard.
+    Updates the post results, re-exports Excel/CSV, and returns the result.
+    """
+    if not payload.reactors:
+        raise HTTPException(status_code=400, detail="未提供点赞者数据。")
+
+    url = (payload.post_url or "").strip()
+    post = None
+    if url:
+        try:
+            post = parse_post_url(url)
+        except Exception:
+            pass
+
+    # Find existing JSON in outputs
+    existing_result = None
+    if post:
+        json_file = OUTPUT_DIR / f"{post.entity_type}_{post.entity_id}.json"
+        if json_file.exists():
+            try:
+                with open(json_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    existing_result = ExtractionResult(**data)
+            except Exception:
+                pass
+
+    if not existing_result:
+        # Look for most recent json
+        import os
+        json_files = sorted(OUTPUT_DIR.glob("*.json"), key=os.path.getmtime, reverse=True)
+        for jf in json_files:
+            if jf.name == "session.json":
+                continue
+            try:
+                with open(jf, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    existing_result = ExtractionResult(**data)
+                    post = existing_result.post
+                    break
+            except Exception:
+                pass
+
+    if not post:
+        if not url:
+            url = "https://www.linkedin.com/feed/"
+        try:
+            post = parse_post_url(url)
+        except Exception:
+            from .models import PostEntity
+            post = PostEntity(
+                entity_type="post",
+                entity_id="imported",
+                urn="urn:li:post:imported",
+                original_url=url,
+            )
+
+    if not existing_result:
+        existing_result = ExtractionResult(
+            post=post,
+            total_comments=0,
+            total_reactions=0,
+            comments=[],
+            reactions=[],
+        )
+
+    # Convert incoming reactors
+    new_reactions = []
+    for r in payload.reactors:
+        vanity = ""
+        if "/in/" in r.profile_url:
+            vanity = r.profile_url.rstrip("/").split("/in/")[-1].split("?")[0]
+
+        clean_url = r.profile_url.split("?")[0]
+        new_reactions.append(
+            ReactionItem(
+                reaction_type=r.reaction_type or "LIKE",
+                reactor=UserProfile(
+                    name=r.name,
+                    profile_url=clean_url,
+                    headline=r.headline or "",
+                    public_identifier=vanity,
+                ),
+                post_urn=post.activity_urn or post.urn,
+            )
+        )
+
+    existing_result.reactions = new_reactions
+    existing_result.total_reactions = len(new_reactions)
+    existing_result.notes = f"✅ 成功通过浏览器助手导入 {len(new_reactions)} 位点赞者的完整主页链接！"
+
+    # Export to Excel, CSV, JSON
+    try:
+        export_to_excel(existing_result)
+        export_to_csv(existing_result)
+        export_to_json(existing_result)
+    except Exception as e:
+        print(f"Export error: {e}")
+
+    return existing_result

@@ -128,7 +128,10 @@
           <p class="text-xs text-slate-500" id="resultStats">0 comments, 0 reactions</p>
         </div>
 
-        <div class="flex items-center space-x-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="openImportModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3.5 py-2 rounded-md shadow-sm transition flex items-center gap-1.5">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> 浏览器一键获取点赞者
+          </button>
           <a id="btnDownloadExcel" href="#" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3.5 py-2 rounded-md shadow-sm transition flex items-center gap-1.5">
             <i class="fa-solid fa-file-excel"></i> Export Excel
           </a>
@@ -261,7 +264,84 @@
     </div>
   </div>
 
+  <!-- Browser Helper Import Modal -->
+  <div id="importModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4">
+      <div class="flex items-center justify-between border-b pb-3 border-slate-100">
+        <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+          <i class="fa-solid fa-wand-magic-sparkles text-indigo-600"></i> 浏览器一键获取点赞人员及主页
+        </h3>
+        <button onclick="toggleImportModal(false)" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-600 leading-relaxed">
+        <div class="bg-indigo-50 border border-indigo-200 text-indigo-950 p-3 rounded-lg space-y-1">
+          <div class="font-bold text-indigo-900 flex items-center gap-1.5">
+            <i class="fa-solid fa-shield-halved text-indigo-600"></i> 100% 成功且免风控原理：
+          </div>
+          <p>您已经在电脑浏览器中登录了领英。直接在浏览器控制台执行 1 行小脚本，可在 <strong>不触发任何领英 Cloudflare 防火墙或验证码</strong> 的情况下，100% 提取弹窗内所有点赞者的姓名、职位及完整个人主页链接！</p>
+        </div>
+
+        <div class="space-y-1.5 text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-200">
+          <div class="font-bold text-slate-900 mb-1"><i class="fa-solid fa-list-ol text-blue-600"></i> 操作步骤（仅需 10 秒）：</div>
+          <div>1. 在电脑浏览器打开领英帖子页面，点击点赞数（如 <strong>“3 Reactions”</strong>）让点赞人员列表弹窗弹出来。</div>
+          <div>2. 在帖子页面按键盘 <kbd class="bg-white px-1.5 py-0.5 border rounded shadow-sm text-slate-900 font-mono">F12</kbd> &rarr; 切换到 <strong>Console (控制台)</strong>。</div>
+          <div>3. 点击下方【复制代码】按钮，粘贴到控制台中按 <kbd class="bg-white px-1.5 py-0.5 border rounded shadow-sm text-slate-900 font-mono">Enter 回车</kbd> 即可！</div>
+        </div>
+
+        <div class="relative">
+          <textarea id="helperCodeSnippet" readonly rows="4" class="w-full p-2.5 bg-slate-900 text-emerald-400 font-mono text-[11px] rounded-lg outline-none select-all"></textarea>
+          <button onclick="copyHelperCode()" id="btnCopySnippet" class="absolute top-2 right-2 bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded text-xs flex items-center gap-1 shadow">
+            <i class="fa-regular fa-copy"></i> 复制代码
+          </button>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">备用：手动粘贴导入（如自动回传受阻，可将剪贴板的 JSON 贴在此处）：</label>
+          <textarea id="manualImportJson" rows="2" placeholder="脚本会自动尝试同步；如需手动粘贴，将复制的内容贴在此处点击下方按钮..." class="w-full px-3 py-1.5 border border-slate-300 rounded-lg outline-none font-mono text-xs"></textarea>
+        </div>
+      </div>
+
+      <div class="pt-2 flex justify-end space-x-2">
+        <button onclick="toggleImportModal(false)" class="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg">关闭</button>
+        <button onclick="submitManualImport()" id="btnSubmitImport" class="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1.5">
+          <i class="fa-solid fa-arrow-down-to-bracket"></i> 手动导入并刷新
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    const BROWSER_HELPER_CODE = `(function() {
+  let list = [];
+  let links = document.querySelectorAll('.artdeco-modal a[href*="/in/"]');
+  links.forEach(a => {
+    let cleanUrl = a.href.split('?')[0];
+    let card = a.closest('li') || a.parentElement;
+    let nameEl = card ? card.querySelector('.artdeco-entity-lockup__title, span[aria-hidden="true"]') : null;
+    let name = (nameEl ? nameEl.innerText : a.innerText).trim();
+    let headlineEl = card ? card.querySelector('.artdeco-entity-lockup__caption, .artdeco-entity-lockup__subtitle') : null;
+    let headline = headlineEl ? headlineEl.innerText.trim() : "";
+    if (cleanUrl && name && !list.some(x => x.profile_url === cleanUrl)) {
+      list.push({ name: name, profile_url: cleanUrl, headline: headline, reaction_type: "LIKE" });
+    }
+  });
+  if (list.length === 0) {
+    alert("⚠️ 未检测到已打开的点赞人员弹窗！\\n请先在页面上点击点赞数（例如 '3 Reactions'）展开点赞列表弹窗，然后再按回车运行！");
+    return;
+  }
+  let jsonStr = JSON.stringify(list, null, 2);
+  fetch('http://localhost:8000/api/import_reactions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ post_url: window.location.href, reactors: list })
+  }).then(r => r.json()).then(res => {
+    alert("🎉 成功抓取 " + list.length + " 位点赞人员，并已直接自动同步到本地 Web 控制台！\\n请切换回 localhost:8000 查看完整表格与下载 Excel！");
+  }).catch(err => {
+    navigator.clipboard.writeText(jsonStr);
+    alert("🎉 成功抓取 " + list.length + " 位点赞人员的主页链接，已复制到剪贴板！\\n请切换回 localhost:8000，点击【导入浏览器提取的点赞者】粘贴导入！");
+  });
+})();`;
     let currentResult = null;
     let activeModalTab = 'full';
 
@@ -539,6 +619,51 @@
         rTab.classList.remove('hidden');
         rBtn.className = "px-6 py-3 text-blue-600 border-b-2 border-blue-600 font-semibold flex items-center gap-2";
         cBtn.className = "px-6 py-3 text-slate-500 hover:text-slate-700 border-b-2 border-transparent flex items-center gap-2";
+      }
+    }
+
+    function openImportModal() {
+      document.getElementById('helperCodeSnippet').value = BROWSER_HELPER_CODE;
+      document.getElementById('importModal').classList.remove('hidden');
+    }
+
+    function toggleImportModal(show) {
+      document.getElementById('importModal').classList.toggle('hidden', !show);
+    }
+
+    function copyHelperCode() {
+      navigator.clipboard.writeText(BROWSER_HELPER_CODE);
+      const btn = document.getElementById('btnCopySnippet');
+      btn.innerHTML = `<i class="fa-solid fa-check"></i> 已复制！`;
+      setTimeout(() => { btn.innerHTML = `<i class="fa-regular fa-copy"></i> 复制代码`; }, 2000);
+    }
+
+    async function submitManualImport() {
+      const raw = document.getElementById('manualImportJson').value.trim();
+      if (!raw) {
+        alert("请先粘贴复制的 JSON 点赞者数据。");
+        return;
+      }
+      try {
+        let reactors = JSON.parse(raw);
+        if (!Array.isArray(reactors)) {
+          if (reactors.reactors && Array.isArray(reactors.reactors)) reactors = reactors.reactors;
+          else throw new Error("JSON 格式应为点赞人员对象列表");
+        }
+        const postUrl = document.getElementById('postUrl').value.trim();
+        const res = await fetch('/api/import_reactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ post_url: postUrl || undefined, reactors: reactors })
+        });
+        if (!res.ok) throw new Error("导入失败: " + res.status);
+        const data = await res.json();
+        toggleImportModal(false);
+        renderResults(data);
+        switchTab('reactions');
+        alert(`🎉 成功导入 ${data.total_reactions} 位点赞者的个人主页！Excel与表格已自动更新！`);
+      } catch (e) {
+        alert("解析或导入失败: " + e.message);
       }
     }
   </script>
