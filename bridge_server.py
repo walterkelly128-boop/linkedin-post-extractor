@@ -36,6 +36,9 @@ class ExtractRequest(BaseModel):
     limit_comments: int = 50
     limit_reactions: int = 100
 
+class InspectRequest(BaseModel):
+    url: str
+
 
 def check_token(x_bridge_token: Optional[str]) -> None:
     if BRIDGE_TOKEN and x_bridge_token != BRIDGE_TOKEN:
@@ -51,6 +54,61 @@ async def health(x_bridge_token: Optional[str] = Header(default=None)):
         "cdp": LOCAL_CDP_URL,
     }
 
+
+@app.post("/inspect")
+async def inspect(
+    payload: InspectRequest,
+    x_bridge_token: Optional[str] = Header(default=None),
+):
+    check_token(x_bridge_token)
+    url = payload.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="LinkedIn post URL 不能为空。")
+    try:
+        from src.chrome_browser import _resolve_cdp_websocket_url
+        from playwright.async_api import async_playwright
+        resolved = await _resolve_cdp_websocket_url(LOCAL_CDP_URL, timeout_seconds=15)
+        async with async_playwright() as p:
+            browser = await p.chromium.connect_over_cdp(
+                resolved, headers={"Host": "127.0.0.1:9222"}, timeout=30000
+            )
+            context = browser.contexts[0]
+            page = next((x for x in context.pages if "linkedin.com" in x.url), None)
+            if page is None:
+                page = await context.new_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_timeout(4000)
+            data = await page.evaluate("""() => {
+              const clean = s => (s || '').replace(/\\s+/g,' ').trim().slice(0,500);
+              const nodes = [...document.querySelectorAll('button,a,[role="button"],[role="dialog"],[data-view-name]')];
+              return {
+                url: location.href,
+                title: document.title,
+                body_text: clean(document.body.innerText).slice(0,12000),
+                buttons: nodes.filter(e => e.tagName==='BUTTON' || e.getAttribute('role')==='button').slice(0,200).map(e => ({
+                  text: clean(e.innerText), aria: e.getAttribute('aria-label'),
+                  cls: String(e.className).slice(0,300),
+                  testid: e.getAttribute('data-test-id'),
+                  view: e.getAttribute('data-view-name')
+                })),
+                profile_links: [...document.querySelectorAll('a[href*="/in/"]')].slice(0,200).map(a => ({
+                  text: clean(a.innerText), href: a.href, cls: String(a.className).slice(0,300)
+                })),
+                dialogs: [...document.querySelectorAll('[role="dialog"]')].map(e => ({
+                  text: clean(e.innerText).slice(0,5000),
+                  html: e.outerHTML.slice(0,20000)
+                })),
+                reaction_nodes: [...document.querySelectorAll('*')].filter(e => /reactions?|comments?/i.test(clean(e.innerText)) && clean(e.innerText).length < 300).slice(0,200).map(e => ({
+                  tag:e.tagName, text:clean(e.innerText), aria:e.getAttribute('aria-label'),
+                  cls:String(e.className).slice(0,300), view:e.getAttribute('data-view-name'),
+                  testid:e.getAttribute('data-test-id')
+                }))
+              };
+            }""")
+            await browser.close()
+            return {"ok": True, "inspect": data}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Inspect failed: {type(exc).__name__}: {exc}") from exc
 
 @app.post("/extract")
 async def extract(
