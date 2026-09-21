@@ -38,3 +38,7 @@ LINKEDIN_REACTIONS_QUERY_ID = os.getenv(
     "LINKEDIN_REACTIONS_QUERY_ID",
     "voyagerSocialDashReactions.41ebf31a9f4c4a84e35a49d5abc9010b",
 ).strip()
+
+# Local Chrome DevTools Protocol endpoint. Docker Desktop reaches the Windows host via host.docker.internal.
+CHROME_CDP_URL = os.getenv("CHROME_CDP_URL", "http://host.docker.internal:9222").strip()
+CHROME_CDP_TIMEOUT = float(os.getenv("CHROME_CDP_TIMEOUT", "15").strip() or "15")
