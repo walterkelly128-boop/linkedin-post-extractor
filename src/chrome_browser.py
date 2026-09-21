@@ -201,7 +201,7 @@ def extract_with_local_chrome(
                     break
 
             if not clicked:
-                candidates = page.locator("button, a").filter(has_text=re.compile(r"\\breactions?\\b", re.I))
+                candidates = page.locator("button, a").filter(has_text=re.compile(r"\breactions?\b", re.I))
                 for i in range(min(candidates.count(), 10)):
                     try:
                         item = candidates.nth(i)
