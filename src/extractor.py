@@ -186,6 +186,203 @@ class LinkedInExtractor:
 
         return reactions, public_likes
 
+    def extract_reactions_with_browser(
+        self,
+        post: PostEntity,
+        limit: int = 100,
+        reaction_type: str = "ALL",
+    ) -> List[ReactionItem]:
+        """
+        Extract reactor profile URLs from the real logged-in LinkedIn page.
+
+        Voyager's /feed/reactions endpoint is increasingly restricted even when
+        li_at is valid. This browser path uses the authenticated session itself,
+        opens the post's reaction dialog, scrolls the virtualized list, and
+        reads the actual /in/ links rendered by LinkedIn.
+        """
+        if not self.cookies or not self.cookies.get("li_at"):
+            return []
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            console.print("[yellow]Playwright is not installed; browser reaction fallback unavailable.[/yellow]")
+            return []
+
+        results: List[ReactionItem] = []
+        seen = set()
+        cookie_list = []
+        for name, value in self.cookies.items():
+            if not name or value is None:
+                continue
+            cookie_list.append({
+                "name": name,
+                "value": str(value),
+                "domain": ".linkedin.com",
+                "path": "/",
+                "secure": True,
+            })
+
+        def add_links(page):
+            dialog = page.locator('div[role="dialog"]').last
+            links = dialog.locator('a[href*="/in/"]') if dialog.count() else page.locator('a[href*="/in/"]')
+            count = links.count()
+            for i in range(count):
+                try:
+                    href = links.nth(i).get_attribute("href") or ""
+                    if "/in/" not in href:
+                        continue
+                    profile_url, vanity = clean_linkedin_profile_url(href)
+                    if not vanity or profile_url in seen:
+                        continue
+
+                    # Prefer the visible card name/headline when available.
+                    card = links.nth(i).locator("xpath=ancestor::*[self::li or @role='listitem'][1]")
+                    if not card.count():
+                        card = links.nth(i).locator("xpath=..")
+                    name = (links.nth(i).inner_text() or "").strip()
+                    headline = ""
+                    if card.count():
+                        try:
+                            txt = card.inner_text().strip().splitlines()
+                            if txt:
+                                name = name or txt[0].strip()
+                            if len(txt) > 1:
+                                headline = txt[1].strip()
+                        except Exception:
+                            pass
+
+                    if not name:
+                        name = vanity.replace("-", " ").title()
+
+                    results.append(
+                        ReactionItem(
+                            reaction_type="LIKE",
+                            reactor=UserProfile(
+                                name=name,
+                                headline=headline,
+                                profile_url=profile_url,
+                                public_identifier=vanity,
+                            ),
+                            post_urn=post.activity_urn or post.urn,
+                        )
+                    )
+                    seen.add(profile_url)
+                    if limit > 0 and len(results) >= limit:
+                        return True
+                except Exception:
+                    continue
+            return False
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(
+                    viewport={"width": 1440, "height": 1000},
+                    user_agent=DEFAULT_USER_AGENT,
+                    locale="en-US",
+                )
+                context.add_cookies(cookie_list)
+                page = context.new_page()
+                page.goto(post.original_url, wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_timeout(2500)
+
+                # If LinkedIn redirects to login, the stored cookie is not usable
+                # for browser extraction either.
+                if "/login" in page.url or "/authwall" in page.url:
+                    self.session_invalid = True
+                    browser.close()
+                    return []
+
+                selectors = [
+                    'button[aria-label*="reaction" i]',
+                    'button[aria-label*="reactions" i]',
+                    'button[aria-label*="like" i]',
+                    '[data-test-id*="reaction"]',
+                    '.social-details-social-counts__reactions',
+                    'button.social-details-social-counts__reactions',
+                ]
+                clicked = False
+                for selector in selectors:
+                    loc = page.locator(selector)
+                    try:
+                        n = loc.count()
+                        for i in range(min(n, 5)):
+                            item = loc.nth(i)
+                            if item.is_visible():
+                                item.click(timeout=3000)
+                                clicked = True
+                                break
+                        if clicked:
+                            break
+                    except Exception:
+                        continue
+
+                if not clicked:
+                    # Some layouts expose the reaction count as a link/button only
+                    # after the social-counts area is visible.
+                    candidates = page.locator('button, a').filter(has_text=re.compile(r'\breactions?\b', re.I))
+                    try:
+                        for i in range(min(candidates.count(), 10)):
+                            item = candidates.nth(i)
+                            if item.is_visible():
+                                item.click(timeout=3000)
+                                clicked = True
+                                break
+                    except Exception:
+                        pass
+
+                if not clicked:
+                    browser.close()
+                    return []
+
+                page.wait_for_timeout(1500)
+                add_links(page)
+
+                # LinkedIn virtualizes the reactor list. Scroll the dialog repeatedly
+                # until no new profile URLs appear for several rounds.
+                stagnant = 0
+                last_count = len(results)
+                for _ in range(30):
+                    if limit > 0 and len(results) >= limit:
+                        break
+                    dialog = page.locator('div[role="dialog"]').last
+                    if dialog.count():
+                        try:
+                            dialog.evaluate(
+                                """el => {
+                                    const nodes = [el, ...el.querySelectorAll('*')];
+                                    const target = nodes.find(n =>
+                                        n.scrollHeight > n.clientHeight + 100
+                                    );
+                                    if (target) target.scrollTop = target.scrollHeight;
+                                    else el.scrollTop = el.scrollHeight;
+                                }"""
+                            )
+                        except Exception:
+                            page.mouse.wheel(0, 1800)
+                    else:
+                        page.mouse.wheel(0, 1800)
+
+                    page.wait_for_timeout(900)
+                    add_links(page)
+                    if len(results) == last_count:
+                        stagnant += 1
+                    else:
+                        stagnant = 0
+                        last_count = len(results)
+                    if stagnant >= 4:
+                        break
+
+                browser.close()
+
+            console.print(f"[green][OK] Browser extracted {len(results)} reactor profile URLs[/green]")
+            return results[:limit] if limit > 0 else results
+
+        except Exception as e:
+            console.print(f"[yellow]Browser reaction extraction failed: {e}[/yellow]")
+            return []
+
     def extract_reactions(
         self,
         post: PostEntity,
@@ -269,7 +466,20 @@ class LinkedInExtractor:
                 start += len(elements)
                 time.sleep(REQUEST_DELAY)
 
-        # Fallback to public HTML reactions if API returned 0
+        # Voyager can reject the reactions endpoint even with a valid login.
+        # Before falling back to public aggregate data, use the authenticated browser
+        # session to read the actual reaction dialog and profile links.
+        if not reactions and has_auth:
+            console.print("[cyan]Voyager returned no reactors; opening LinkedIn in an authenticated browser...[/cyan]")
+            browser_reactions = self.extract_reactions_with_browser(
+                post=post,
+                limit=limit,
+                reaction_type=reaction_type,
+            )
+            if browser_reactions:
+                reactions = browser_reactions
+
+        # Fallback to public HTML aggregate reactions if both authenticated paths return 0.
         if not reactions:
             console.print("[cyan]Checking public page for reactions...[/cyan]")
             html_reactions, _ = self.extract_reactions_from_html(post)
