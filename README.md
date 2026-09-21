@@ -202,3 +202,58 @@ docker compose up -d
 ```
 
 如果登录状态已经保存，不需要重新登录；`outputs/session.json` 会通过现有 volume 持久化。
+
+
+## 本地 Chrome 已登录模式
+
+现在 Web 控制台默认优先连接本机已经登录 LinkedIn 的 Chrome，通过 Chrome DevTools Protocol（CDP）直接操作浏览器页面。这样不需要把 `li_at` 复制到程序里。
+
+### Windows + Docker Desktop
+
+Chrome 136 及以上版本要求远程调试使用独立的非默认 `user-data-dir`。建议使用项目专用 Chrome 配置目录；第一次启动后登录 LinkedIn，以后保持该 Chrome 会话即可。
+
+先关闭正在运行的专用 Chrome 实例，然后 PowerShell 执行：
+
+```powershell
+$chrome = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+& $chrome --remote-debugging-port=9222 --user-data-dir="E:\linkedin-chrome-profile"
+```
+
+如果 Chrome 安装在当前用户目录，可以尝试：
+
+```powershell
+$chrome = "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+& $chrome --remote-debugging-port=9222 --user-data-dir="E:\linkedin-chrome-profile"
+```
+
+第一次启动该窗口后：
+
+1. 在这个 Chrome 中打开 LinkedIn。
+2. 正常登录你的 LinkedIn 账号。
+3. 保持 Chrome 不要关闭。
+4. 浏览器地址栏打开 `http://127.0.0.1:9222/json/version`，如果看到 JSON，说明 CDP 已开启。
+5. 回到 `http://localhost:8000`，勾选「优先使用本机已登录 Chrome」。
+6. 粘贴 LinkedIn 帖子 URL，点击「Start Extraction」。
+
+程序会自动打开帖子页面，尝试读取点赞者和评论者的 `/in/...` 主页 URL，并自动导出 Excel/CSV/JSON。
+
+### Docker 更新
+
+```powershell
+cd E:\linkedin-post-extractor
+git pull origin main
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
+
+如果已经有镜像并且只是后续普通代码更新：
+
+```powershell
+git pull origin main
+docker compose up -d --build
+```
+
+不要删除 `outputs`，其中包含持久化的 `session.json`。
+
+如果本地 Chrome CDP 暂时不可用，程序会自动回退到现有的 `li_at` / Voyager / Playwright 路径。
