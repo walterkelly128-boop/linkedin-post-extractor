@@ -147,6 +147,7 @@ async def _resolve_cdp_websocket_url(cdp_url: str, timeout_seconds: float = 15) 
     """Resolve Chrome's exact browser WebSocket URL from /json/version."""
     import asyncio
     import json
+    import socket
     from urllib.parse import urlparse
 
     raw = (cdp_url or "").strip().rstrip("/")
@@ -192,8 +193,17 @@ async def _resolve_cdp_websocket_url(cdp_url: str, timeout_seconds: float = 15) 
         raise RuntimeError("Chrome /json/version 未返回 webSocketDebuggerUrl。")
 
     reported = urlparse(ws_url)
-    if reported.hostname in ("127.0.0.1", "localhost", "::1"):
-        netloc = parsed.hostname
+    if reported.hostname in ("127.0.0.1", "localhost", "::1", "host.docker.internal"):
+        # Chrome rejects a WebSocket request whose Host header is a hostname.
+        # Playwright sends Host: host.docker.internal here, so use the numeric
+        # Docker Desktop host IP instead.
+        try:
+            connect_host = socket.gethostbyname(parsed.hostname)
+        except OSError as exc:
+            raise RuntimeError(
+                f"无法解析 Docker 主机地址 {parsed.hostname}；{exc}"
+            ) from exc
+        netloc = connect_host
         if reported.port:
             netloc += f":{reported.port}"
         ws_url = reported._replace(netloc=netloc).geturl()
