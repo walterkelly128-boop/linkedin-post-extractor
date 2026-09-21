@@ -5,6 +5,11 @@ playwright>=1.40.0
 # Data validation & modeling
 pydantic>=2.0.0
 
+# Web UI & API for Docker Desktop
+fastapi>=0.100.0
+uvicorn>=0.23.0
+jinja2>=3.1.0
+
 # CLI & Terminal UI
 rich>=13.0.0
 typer>=0.9.0

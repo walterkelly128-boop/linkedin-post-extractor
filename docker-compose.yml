@@ -3,10 +3,16 @@ services:
     build: .
     image: linkedin-post-extractor:latest
     container_name: linkedin-post-extractor
+    ports:
+      # Web Console UI accessible at http://localhost:8000
+      - "8000:8000"
+    # Default to running the interactive Web Dashboard in Docker Desktop
+    command: ["web", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
-      # Mount output directory to host so extracted CSV/Excel/JSON files appear locally
+      # Mount outputs to host so exported Excel/CSV/JSON appear locally
       - ./outputs:/app/outputs
-      # Optionally mount session.json if logged in on host
+      # Mount session.json if present
       - ./session.json:/app/session.json:ro
     env_file:
       - .env
+    restart: unless-stopped

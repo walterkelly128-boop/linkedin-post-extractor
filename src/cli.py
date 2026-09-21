@@ -59,6 +59,24 @@ def status():
 
 
 @app.command()
+def web(
+    host: str = typer.Option("0.0.0.0", "--host", "-h", help="Host address to bind"),
+    port: int = typer.Option(8000, "--port", "-p", help="Port to listen on"),
+):
+    """
+    Launch the interactive Web UI Dashboard (ideal for Docker Desktop).
+    """
+    import uvicorn
+    console.print(Panel.fit(
+        f"[bold cyan]LinkedIn Extractor - Web Console[/bold cyan]\n"
+        f"Server starting at: [bold underline green]http://{host}:{port}[/bold underline green]\n"
+        f"Open the URL in your browser to start extracting with interactive Web UI!",
+        border_style="green",
+    ))
+    uvicorn.run("src.web:app", host=host, port=port, reload=False)
+
+
+@app.command()
 def scrape(
     url: str = typer.Argument(..., help="LinkedIn post URL, activity link, or post ID"),
     comments: bool = typer.Option(True, "--comments/--no-comments", help="Extract comments"),
