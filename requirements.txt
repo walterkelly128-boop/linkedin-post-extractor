@@ -1,0 +1,16 @@
+# Core HTTP & scraping
+httpx>=0.24.0
+playwright>=1.40.0
+
+# Data validation & modeling
+pydantic>=2.0.0
+
+# CLI & Terminal UI
+rich>=13.0.0
+typer>=0.9.0
+
+# Data export
+openpyxl>=3.1.0
+
+# Environment management
+python-dotenv>=1.0.0

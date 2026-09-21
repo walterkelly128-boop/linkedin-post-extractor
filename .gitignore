@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments & Dependencies
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Session and cookie credentials (DO NOT COMMIT!)
+session.json
+*.cookie
+*.session
+
+# Output data exports
+outputs/
+*.csv
+*.json
+*.xlsx
+!package.json
+!tsconfig.json
+
+# Playwright & Browser caches
+.playwright/
+test-results/
+playwright-report/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
