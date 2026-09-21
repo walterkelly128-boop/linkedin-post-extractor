@@ -1,4 +1,5 @@
 import json
+import traceback
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
@@ -10,7 +11,9 @@ from .extractor import LinkedInExtractor
 from .auth import get_stored_cookies, save_cookies, verify_linkedin_session, parse_cookie_input
 from .exporter import export_to_excel, export_to_csv, export_to_json
 from .config import BASE_DIR, OUTPUT_DIR, SESSION_FILE
-from .models import ExtractionResult, ReactionItem, UserProfile\nfrom .chrome_browser import extract_with_local_chrome\nfrom .config import CHROME_CDP_URL
+from .models import ExtractionResult, ReactionItem, UserProfile
+from .chrome_browser import extract_with_local_chrome
+from .config import CHROME_CDP_URL
 
 app = FastAPI(
     title="LinkedIn Post Comments & Reactions Extractor",
