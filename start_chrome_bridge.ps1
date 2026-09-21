@@ -10,10 +10,10 @@ if (-not (Test-Path $chrome)) {
     $chrome = "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
 }
 if (-not (Test-Path $chrome)) {
-    throw "找不到 Chrome。请修改 start_chrome_bridge.ps1 中的 Chrome 路径。"
+    throw "Chrome not found. Please update the Chrome path in this script."
 }
 if (-not (Test-Path $bridgeExe)) {
-    throw "找不到 $bridgeExe。请先从 GitHub Actions 下载 chrome-bridge-windows 工件，或运行 build_bridge.ps1。"
+    throw "Chrome Bridge EXE not found: $bridgeExe"
 }
 if (-not (Test-Path $profile)) {
     New-Item -ItemType Directory -Path $profile -Force | Out-Null
@@ -21,27 +21,32 @@ if (-not (Test-Path $profile)) {
 
 try {
     Invoke-RestMethod "http://127.0.0.1:$chromePort/json/version" -TimeoutSec 2 | Out-Null
-    Write-Host "Chrome CDP 已在 :$chromePort 运行。" -ForegroundColor Green
+    Write-Host "Chrome CDP is already running on port $chromePort." -ForegroundColor Green
 } catch {
-    Write-Host "启动专用 Chrome..." -ForegroundColor Cyan
-    Start-Process -FilePath $chrome -ArgumentList @("--remote-debugging-port=$chromePort","--remote-debugging-address=0.0.0.0","--remote-allow-origins=*","--user-data-dir=$profile")
+    Write-Host "Starting dedicated Chrome..." -ForegroundColor Cyan
+    Start-Process -FilePath $chrome -ArgumentList @(
+        "--remote-debugging-port=$chromePort",
+        "--remote-debugging-address=0.0.0.0",
+        "--remote-allow-origins=*",
+        "--user-data-dir=$profile"
+    )
     Start-Sleep -Seconds 3
 }
 
 try {
     Invoke-RestMethod "http://127.0.0.1:$chromePort/json/version" -TimeoutSec 5 | Out-Null
 } catch {
-    throw "Chrome CDP :$chromePort 没有成功启动。请检查专用 Chrome 窗口。"
+    throw "Chrome CDP on port $chromePort did not start successfully."
 }
 
 try {
     Invoke-RestMethod "http://127.0.0.1:$bridgePort/health" -TimeoutSec 2 | Out-Null
-    Write-Host "Chrome Bridge 已经运行在 :$bridgePort。" -ForegroundColor Green
+    Write-Host "Chrome Bridge is already running on port $bridgePort." -ForegroundColor Green
     exit 0
 } catch {}
 
-Write-Host "启动 Windows Chrome Bridge :$bridgePort ..." -ForegroundColor Cyan
-Write-Host "保持此窗口运行；关闭窗口会停止 Bridge。" -ForegroundColor Yellow
+Write-Host "Starting Windows Chrome Bridge on port $bridgePort..." -ForegroundColor Cyan
+Write-Host "Keep this window open while using the extractor." -ForegroundColor Yellow
 
 $env:LOCAL_CHROME_CDP_URL = "http://127.0.0.1:$chromePort"
 $env:CHROME_BRIDGE_HOST = "0.0.0.0"
