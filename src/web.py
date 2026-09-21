@@ -35,9 +35,14 @@ class ExtractPayload(BaseModel):
     limit_reactions: int = 100
 
 
+INDEX_FILE = TEMPLATES_DIR / "index.html"
+
+
 @app.get("/", response_class=HTMLResponse)
-async def serve_dashboard(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def serve_dashboard():
+    if not INDEX_FILE.exists():
+        raise HTTPException(status_code=404, detail="Dashboard template not found.")
+    return FileResponse(INDEX_FILE, media_type="text/html")
 
 
 @app.get("/api/status")
