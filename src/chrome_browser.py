@@ -143,6 +143,63 @@ async def _extract_comments_from_page(page, post, seen, limit):
     return comments
 
 
+async def _resolve_cdp_websocket_url(cdp_url: str, timeout_seconds: float = 15) -> str:
+    """Resolve Chrome's exact browser WebSocket URL from /json/version."""
+    import asyncio
+    import json
+    from urllib.parse import urlparse
+
+    raw = (cdp_url or "").strip().rstrip("/")
+    if raw.startswith("ws://") or raw.startswith("wss://"):
+        if "/devtools/browser/" in raw:
+            return raw
+        raise RuntimeError(
+            "CHROME_CDP_URL 使用了不完整的 WebSocket 地址；"
+            "请使用 http://host.docker.internal:9222，让程序自动发现 browser UUID。"
+        )
+    if not raw:
+        raw = "http://host.docker.internal:9222"
+
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise RuntimeError(f"无效的 CHROME_CDP_URL: {cdp_url}")
+
+    version_url = raw + "/json/version"
+
+    def fetch():
+        from urllib.request import Request, urlopen
+        req = Request(
+            version_url,
+            headers={"Host": f"127.0.0.1:{parsed.port or 80}"},
+        )
+        with urlopen(req, timeout=timeout_seconds) as response:
+            return response.read().decode("utf-8")
+
+    try:
+        payload = await asyncio.to_thread(fetch)
+    except Exception as exc:
+        raise RuntimeError(
+            f"无法从 Docker 读取 Windows Chrome CDP: {version_url}；{exc}"
+        ) from exc
+
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Chrome /json/version 返回的内容不是有效 JSON。") from exc
+
+    ws_url = str(data.get("webSocketDebuggerUrl") or "").strip()
+    if not ws_url:
+        raise RuntimeError("Chrome /json/version 未返回 webSocketDebuggerUrl。")
+
+    reported = urlparse(ws_url)
+    if reported.hostname in ("127.0.0.1", "localhost", "::1"):
+        netloc = parsed.hostname
+        if reported.port:
+            netloc += f":{reported.port}"
+        ws_url = reported._replace(netloc=netloc).geturl()
+    return ws_url
+
+
 async def extract_with_local_chrome(
     post: PostEntity,
     cdp_url: str,
@@ -162,9 +219,10 @@ async def extract_with_local_chrome(
         raise RuntimeError("Playwright is not installed in the container.") from exc
 
     async with async_playwright() as p:
+        resolved_cdp_url = await _resolve_cdp_websocket_url(cdp_url, timeout_seconds=15)
         browser = await p.chromium.connect_over_cdp(
-            cdp_url,
-            timeout=int(float(15000)),
+            resolved_cdp_url,
+            timeout=15000,
         )
         contexts = browser.contexts
         if not contexts:
