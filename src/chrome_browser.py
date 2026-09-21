@@ -277,146 +277,107 @@ async def extract_with_local_chrome(
         comments: List[CommentItem] = []
 
         if include_reactions:
-            selectors = [
-                'button[aria-label*="reaction" i]',
-                'button[aria-label*="reactions" i]',
-                '.social-details-social-counts__reactions',
-                'button.social-details-social-counts__reactions',
-                '[data-test-id*="reaction"]',
-            ]
+            # IMPORTANT: never click LinkedIn's normal "React" toggle.
+            # It can change the logged-in user's reaction. We only open the
+            # reactor list through an explicit reaction-count element.
+            count_candidates = page.locator(
+                'button[aria-label*="reactions" i], '
+                'a[aria-label*="reactions" i], '
+                '[data-test-id*="social-counts" i], '
+                '.social-details-social-counts__reactions'
+            )
             clicked = False
-            for selector in selectors:
-                loc = page.locator(selector)
-                count = await loc.count()
-                for i in range(min(count, 8)):
-                    try:
-                        item = loc.nth(i)
-                        if await item.is_visible():
-                            await item.click(timeout=4000)
-                            clicked = True
-                            break
-                    except Exception:
-                        continue
-                if clicked:
-                    break
-
-            if not clicked:
-                # Prefer the numeric reaction-count control. Clicking the
-                # generic "React" button only changes the current user's
-                # reaction and does not open the list of people.
-                count_candidates = page.locator("button, a, span, div").filter(
-                    has_text=re.compile(r"\b\d+\s+reactions?\b", re.I)
-                )
-                count = await count_candidates.count()
-                for i in range(min(count, 20)):
-                    try:
-                        item = count_candidates.nth(i)
-                        if await item.is_visible():
-                            await item.click(timeout=4000)
-                            clicked = True
-                            break
-                    except Exception:
-                        continue
-
-            if not clicked:
-                candidates = page.locator("button, a").filter(
-                    has_text=re.compile(r"\breactions?\b", re.I)
-                )
-                count = await candidates.count()
-                for i in range(min(count, 10)):
-                    try:
-                        item = candidates.nth(i)
-                        label = (await item.get_attribute("aria-label") or "").lower()
-                        text_value = (await item.inner_text()).strip().lower()
-                        if "react" == text_value or label == "react":
-                            continue
-                        if await item.is_visible():
-                            await item.click(timeout=4000)
-                            clicked = True
-                            break
-                    except Exception:
-                        continue
-
-            if not clicked:
-                raise RuntimeError(
-                    f"已连接本地 Chrome，但在 LinkedIn 帖子页面没有找到“Reactions/点赞”入口。"
-                    f"当前页面：{page.url}"
-                )
-
-            await page.wait_for_timeout(1800)
-
-            dialogs = page.locator('div[role="dialog"]')
-            if await dialogs.count():
+            count = await count_candidates.count()
+            for i in range(min(count, 20)):
                 try:
-                    await dialogs.last.wait_for(state="visible", timeout=5000)
+                    item = count_candidates.nth(i)
+                    if not await item.is_visible():
+                        continue
+                    text_value = (await item.inner_text()).strip()
+                    aria = (await item.get_attribute("aria-label") or "").strip()
+                    # Require a numeric reaction count. Do not click "React".
+                    if re.search(r"\b\d+\s+reactions?\b", text_value, re.I) or re.search(
+                        r"\b\d+\s+reactions?\b", aria, re.I
+                    ):
+                        await item.click(timeout=4000)
+                        clicked = True
+                        break
+                except Exception:
+                    continue
+
+            if clicked:
+                await page.wait_for_timeout(1800)
+                seen = set()
+                stagnant = 0
+                last = 0
+
+                for _ in range(35):
+                    reactions.extend(await _reaction_links(page, seen, post, reactions_limit))
+                    if reactions_limit > 0 and len(reactions) >= reactions_limit:
+                        break
+
+                    dialogs = page.locator('div[role="dialog"]')
+                    if await dialogs.count():
+                        dialog = dialogs.last
+                        try:
+                            await dialog.evaluate(
+                                """el => {
+                                  const nodes=[el,...el.querySelectorAll('*')];
+                                  const target=nodes.find(n=>n.scrollHeight>n.clientHeight+100);
+                                  if(target) target.scrollTop=target.scrollHeight;
+                                  else el.scrollTop=el.scrollHeight;
+                                }"""
+                            )
+                        except Exception:
+                            await page.mouse.wheel(0, 1800)
+                    else:
+                        break
+
+                    await page.wait_for_timeout(800)
+                    if len(reactions) == last:
+                        stagnant += 1
+                    else:
+                        stagnant = 0
+                        last = len(reactions)
+                    if stagnant >= 4:
+                        break
+
+                try:
+                    await page.keyboard.press("Escape")
+                    await page.wait_for_timeout(500)
                 except Exception:
                     pass
 
-            seen = set()
-            stagnant = 0
-            last = 0
-
-            for _ in range(35):
-                reactions.extend(await _reaction_links(page, seen, post, reactions_limit))
-                if reactions_limit > 0 and len(reactions) >= reactions_limit:
-                    break
-
-                dialogs = page.locator('div[role="dialog"]')
-                if await dialogs.count():
-                    dialog = dialogs.last
-                    try:
-                        await dialog.evaluate(
-                            """el => {
-                              const nodes=[el,...el.querySelectorAll('*')];
-                              const target=nodes.find(n=>n.scrollHeight>n.clientHeight+100);
-                              if(target) target.scrollTop=target.scrollHeight;
-                              else el.scrollTop=el.scrollHeight;
-                            }"""
-                        )
-                    except Exception:
-                        await page.mouse.wheel(0, 1800)
-                else:
-                    await page.mouse.wheel(0, 1800)
-
-                await page.wait_for_timeout(800)
-                if len(reactions) == last:
-                    stagnant += 1
-                else:
-                    stagnant = 0
-                    last = len(reactions)
-                if stagnant >= 4:
-                    break
-
-            if not reactions:
-                visible_links = page.locator('a[href*="/in/"], a[href*="linkedin.com/in/"]')
-                visible_count = await visible_links.count()
-                for i in range(visible_count):
-                    try:
-                        link = visible_links.nth(i)
-                        if not await link.is_visible():
-                            continue
-                        parent = link.locator("xpath=..")
-                        card_text = await parent.inner_text()
-                        profile = await _profile_from_link(link, card_text)
-                        if not profile or profile.profile_url in seen:
-                            continue
-                        seen.add(profile.profile_url)
-                        reactions.append(ReactionItem(reaction_type="LIKE", reactor=profile, post_urn=post.activity_urn or post.urn))
-                        if reactions_limit > 0 and len(reactions) >= reactions_limit:
-                            break
-                    except Exception:
-                        continue
-
-            try:
-                await page.keyboard.press("Escape")
-                await page.wait_for_timeout(500)
-            except Exception:
-                pass
-
         if include_comments:
+            # Reload the post so reaction modal state cannot interfere.
             await page.goto(post.original_url, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(2500)
-            for _ in range(12):
+
+            # Expand the comments section if LinkedIn exposes a comment count
+            # button. Never click a reaction/React control here.
+            comment_buttons = page.locator(
+                'button[aria-label*="comment" i], '
+                'button[data-test-id*="comment" i], '
+                'button[data-view-name*="comment" i]'
+            )
+            bc = await comment_buttons.count()
+            for i in range(min(bc, 20)):
+                try:
+                    item = comment_buttons.nth(i)
+                    if not await item.is_visible():
+                        continue
+                    txt = (await item.inner_text()).strip()
+                    aria = (await item.get_attribute("aria-label") or "").strip()
+                    if re.search(r"\b\d*\s*comments?\b", txt, re.I) or re.search(
+                        r"\b\d*\s*comments?\b", aria, re.I
+                    ):
+                        await item.click(timeout=4000)
+                        await page.wait_for_timeout(1200)
+                        break
+                except Exception:
+                    continue
+
+            for _ in range(20):
                 current_seen = {c.author.profile_url for c in comments}
                 new_comments = await _extract_comments_from_page(
                     page, post, current_seen, comments_limit
@@ -428,7 +389,7 @@ async def extract_with_local_chrome(
                         existing_urls.add(comment.author.profile_url)
                 if comments_limit > 0 and len(comments) >= comments_limit:
                     break
-                await page.mouse.wheel(0, 1800)
+                await page.mouse.wheel(0, 1600)
                 await page.wait_for_timeout(900)
 
         result = ExtractionResult(
