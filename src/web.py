@@ -21,7 +21,6 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Enable CORS so browser console snippets on linkedin.com can post directly to localhost:8000
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,7 +33,6 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 INDEX_FILE = TEMPLATES_DIR / "index.html"
 
 
-# Global exception handler so frontend always gets clean JSON instead of raw HTML 500
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     traceback.print_exc()
@@ -81,9 +79,6 @@ async def get_status():
     else:
         is_valid, status_msg, user_name = False, "未配置 Cookie", None
 
-    # "configured" is persistence state, not the same thing as a successful
-    # live Voyager probe. Never turn a stored li_at into "logged out" merely
-    # because the verification endpoint requires a companion JSESSIONID.
     stored_only = has_li_at and not is_valid
     return {
         "configured": has_li_at,
@@ -98,7 +93,6 @@ async def get_status():
     }
 
 
-
 @app.post("/api/cookie")
 async def update_cookie(payload: CookiePayload):
     raw_input = (payload.cookie_input or payload.li_at or "").strip()
@@ -110,7 +104,6 @@ async def update_cookie(payload: CookiePayload):
         cookies_dict["JSESSIONID"] = payload.jsessionid.strip()
 
     if not cookies_dict.get("li_at"):
-        # If user supplied only jsessionid or invalid format
         stored = get_stored_cookies()
         if "li_at" in stored:
             stored.update(cookies_dict)
@@ -123,7 +116,6 @@ async def update_cookie(payload: CookiePayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"保存 Cookie 失败: {e}")
 
-    # Verify immediately with probe
     is_valid, status_msg, user_name = verify_linkedin_session(cookies_dict)
 
     return {
@@ -150,7 +142,7 @@ async def extract_data(payload: ExtractPayload):
     # This does not copy or store Chrome cookies in the application.
     if payload.use_local_chrome:
         try:
-            result, _ = extract_with_local_chrome(
+            result, _ = await extract_with_local_chrome(
                 post=post,
                 cdp_url=CHROME_CDP_URL,
                 include_comments=payload.include_comments,
@@ -169,9 +161,7 @@ async def extract_data(payload: ExtractPayload):
             print(f"[Local Chrome] {chrome_err}; falling back to stored li_at/Voyager mode.")
 
     cookies = get_stored_cookies()
-    
-    # If the user supplies li_at on the extraction form, persist it too so a
-    # page refresh does not require entering it again.
+
     if payload.li_at and payload.li_at.strip():
         parsed = parse_cookie_input(payload.li_at.strip())
         cookies.update(parsed)
@@ -180,7 +170,6 @@ async def extract_data(payload: ExtractPayload):
         except Exception as exc:
             print(f"Warning: failed to persist inline LinkedIn cookie: {exc}")
 
-    # If li_at is missing, extractor will run in public fallback mode (extracting public comments & like counts)
     has_cookie = bool(cookies and cookies.get("li_at"))
     if not has_cookie:
         cookies = {}
@@ -198,7 +187,6 @@ async def extract_data(payload: ExtractPayload):
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"LinkedIn API extraction error: {err}")
 
-    # Generate output files automatically so they are ready for download
     try:
         export_to_excel(result)
         export_to_csv(result)
@@ -244,10 +232,6 @@ class ImportReactionsPayload(BaseModel):
 
 @app.post("/api/import_reactions", response_model=ExtractionResult)
 async def import_reactions(payload: ImportReactionsPayload):
-    """
-    Import reactor list collected via browser console/helper directly into the dashboard.
-    Updates the post results, re-exports Excel/CSV, and returns the result.
-    """
     if not payload.reactors:
         raise HTTPException(status_code=400, detail="未提供点赞者数据。")
 
@@ -259,7 +243,6 @@ async def import_reactions(payload: ImportReactionsPayload):
         except Exception:
             pass
 
-    # Find existing JSON in outputs
     existing_result = None
     if post:
         json_file = OUTPUT_DIR / f"{post.entity_type}_{post.entity_id}.json"
@@ -272,7 +255,6 @@ async def import_reactions(payload: ImportReactionsPayload):
                 pass
 
     if not existing_result:
-        # Look for most recent json
         import os
         json_files = sorted(OUTPUT_DIR.glob("*.json"), key=os.path.getmtime, reverse=True)
         for jf in json_files:
@@ -310,7 +292,6 @@ async def import_reactions(payload: ImportReactionsPayload):
             reactions=[],
         )
 
-    # Convert incoming reactors
     new_reactions = []
     for r in payload.reactors:
         vanity = ""
@@ -335,7 +316,6 @@ async def import_reactions(payload: ImportReactionsPayload):
     existing_result.total_reactions = len(new_reactions)
     existing_result.notes = f"✅ 成功通过浏览器助手导入 {len(new_reactions)} 位点赞者的完整主页链接！"
 
-    # Export to Excel, CSV, JSON
     try:
         export_to_excel(existing_result)
         export_to_csv(existing_result)
