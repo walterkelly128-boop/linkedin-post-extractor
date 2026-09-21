@@ -1,10 +1,12 @@
 """
-LinkedIn URL parser — extracts Activity ID from 3 supported URL formats.
+LinkedIn URL parser — extracts Activity ID from supported URL formats.
 
 Supported formats:
   1. Raw ID:          7302346926123798528
   2. Activity URL:    https://www.linkedin.com/feed/update/urn:li:activity:7302346926123798528/
-  3. Full post URL:   https://www.linkedin.com/posts/username_title-activity-7302346926123798528-dMnz
+  3. activity URL:    https://www.linkedin.com/posts/name_title-activity-7302346926123798528-xxxx
+  4. ugcPost URL:     https://www.linkedin.com/posts/name_title-ugcPost-7503358026721038337-xxxx
+  5. Any LinkedIn posts URL containing a 15-25 digit numeric ID
 """
 
 from __future__ import annotations
@@ -13,13 +15,17 @@ import re
 from typing import Optional, Tuple
 
 
-# Regex patterns for the three URL formats
+# Regex patterns — tried in order, first match wins
 _PATTERNS = [
     # Activity URN in URL: /feed/update/urn:li:activity:XXXXXXXXXX
     re.compile(r"urn:li:activity:(\d{15,25})"),
-    # Full post URL: -activity-XXXXXXXXXX- at the end
+    # Full post URL with -activity- prefix: -activity-XXXXXXXXXX-
     re.compile(r"-activity-(\d{15,25})[-/]?"),
-    # Bare numeric ID (15–25 digits, whole string)
+    # ugcPost URL format: -ugcPost-XXXXXXXXXX-
+    re.compile(r"-ugcPost-(\d{15,25})[-/]?"),
+    # Generic fallback: any 15-25 digit number in a linkedin.com/posts URL
+    re.compile(r"linkedin\.com/posts/[^/]*?(\d{15,25})"),
+    # Bare numeric ID (15-25 digits, whole string or end of string)
     re.compile(r"^\s*(\d{15,25})\s*$"),
 ]
 
