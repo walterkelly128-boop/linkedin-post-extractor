@@ -230,9 +230,13 @@ async def extract_with_local_chrome(
 
     async with async_playwright() as p:
         resolved_cdp_url = await _resolve_cdp_websocket_url(cdp_url, timeout_seconds=15)
+        # Chrome 153 accepts the CDP HTTP endpoint only when the Host
+        # header is loopback/localhost. The WebSocket itself can use the
+        # Docker Desktop host IP, while Playwright sends the required Host.
         browser = await p.chromium.connect_over_cdp(
             resolved_cdp_url,
-            timeout=15000,
+            headers={"Host": "127.0.0.1:9222"},
+            timeout=30000,
         )
         contexts = browser.contexts
         if not contexts:
