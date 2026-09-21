@@ -279,7 +279,6 @@ class LinkedInExtractor:
                 browser = p.chromium.launch(headless=True)
                 context = browser.new_context(
                     viewport={"width": 1440, "height": 1000},
-                    user_agent=DEFAULT_USER_AGENT,
                     locale="en-US",
                 )
                 context.add_cookies(cookie_list)
@@ -297,7 +296,6 @@ class LinkedInExtractor:
                 selectors = [
                     'button[aria-label*="reaction" i]',
                     'button[aria-label*="reactions" i]',
-                    'button[aria-label*="like" i]',
                     '[data-test-id*="reaction"]',
                     '.social-details-social-counts__reactions',
                     'button.social-details-social-counts__reactions',
