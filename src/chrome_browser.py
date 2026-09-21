@@ -38,7 +38,7 @@ async def _reaction_links(page, seen, post, limit):
     results = []
     dialogs = page.locator('div[role="dialog"]')
     root = dialogs.last if await dialogs.count() else page
-    links = root.locator('a[href*="/in/"]')
+    links = root.locator('a[href*="/in/"], a[href*="linkedin.com/in/"]')
     count = await links.count()
     for i in range(count):
         try:
@@ -72,6 +72,12 @@ def _comment_cards(page):
         "div.comments-comment-item",
         "li.comments-comment-item",
         "[data-test-id='comments-comment-item']",
+        "[data-view-name='comment']",
+        "article[data-id*='comment']",
+        "div[data-id*='comment']",
+        "li[data-id*='comment']",
+        ".comments-comment-entity",
+        ".comments-comments-list__comment-item",
     ]
     return selectors
 
@@ -91,7 +97,7 @@ async def _extract_comments_from_page(page, post, seen, limit):
     for i in range(count):
         try:
             card = cards.nth(i)
-            links = card.locator('a[href*="/in/"]')
+            links = card.locator('a[href*="/in/"], a[href*="linkedin.com/in/"]')
             if not await links.count():
                 continue
             card_text = await card.inner_text()
@@ -350,6 +356,26 @@ async def extract_with_local_chrome(
                     last = len(reactions)
                 if stagnant >= 4:
                     break
+
+            if not reactions:
+                visible_links = page.locator('a[href*="/in/"], a[href*="linkedin.com/in/"]')
+                visible_count = await visible_links.count()
+                for i in range(visible_count):
+                    try:
+                        link = visible_links.nth(i)
+                        if not await link.is_visible():
+                            continue
+                        parent = link.locator("xpath=..")
+                        card_text = await parent.inner_text()
+                        profile = await _profile_from_link(link, card_text)
+                        if not profile or profile.profile_url in seen:
+                            continue
+                        seen.add(profile.profile_url)
+                        reactions.append(ReactionItem(reaction_type="LIKE", reactor=profile, post_urn=post.activity_urn or post.urn))
+                        if reactions_limit > 0 and len(reactions) >= reactions_limit:
+                            break
+                    except Exception:
+                        continue
 
             try:
                 await page.keyboard.press("Escape")
