@@ -145,7 +145,7 @@ def comments(c,auth,limit):
     js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const profileFrom=a=>{
-  const m=(a.href||"").match(/https?://(?:www\.)?linkedin\.com/in/([^/?#]+)/i);
+  const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);
   if(!m)return null;
   let name=clean(a.innerText||"");
   if(!name){
@@ -157,7 +157,7 @@ const profileFrom=a=>{
     }
   }
   name=name.replace(/\s*[•·]\s*(?:2nd|3rd|1st)\+?.*$/i,"").trim();
-  return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(//$/,"")};
+  return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")};
 };
 const clickVisibleText=async(text)=>{
   const nodes=[...document.querySelectorAll("button,a,[role='button'],li")].filter(e=>{
@@ -204,7 +204,7 @@ for(const a of document.querySelectorAll("a[href*='/in/']")){
     if(links>=1&&links<=3&&txt.length>=45&&txt.length<1800&&
        /\bFollow\b/i.test(txt)&&
        /(?:\b\d+[smhdwmy]\b|\b\d+\s*(?:day|days|week|weeks|month|months|hour|hours)\b)/i.test(txt)){
-      const lines=(n.innerText||"").split("\\n").map(clean).filter(Boolean);
+      const lines=(n.innerText||"").split("\n").map(clean).filter(Boolean);
       const qi=lines.findIndex(x=>x.toLowerCase()===q.name.toLowerCase());
       if(qi>=0){box=n;break}
       // The anchor text can be empty; accept the compact comment card shape.
@@ -220,7 +220,7 @@ for(const a of document.querySelectorAll("a[href*='/in/']")){
 
 const out=[];
 for(const {q,box} of cards){
-  const lines=(box.innerText||"").split("\\n").map(clean).filter(Boolean);
+  const lines=(box.innerText||"").split("\n").map(clean).filter(Boolean);
   let text="";
   // Prefer the text after the Follow/timestamp metadata and before reaction counts.
   for(let i=0;i<lines.length;i++){
