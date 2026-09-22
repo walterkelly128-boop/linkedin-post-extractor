@@ -66,6 +66,101 @@ async def _reaction_links(page, seen, post, limit):
     return results
 
 
+
+async def _click_most_recent_comments(page):
+    """Switch LinkedIn's comment sort to Most recent and wait for the list to refresh."""
+    # LinkedIn has changed the DOM for this control several times. Try the
+    # visible sort control first, then the menu item. We intentionally match
+    # only comment-sort labels, never the generic "React" control.
+    sort_labels = [
+        "Most relevant",
+        "Most Relevant",
+        "Relevant",
+        "Sort by",
+    ]
+    clicked_sort = False
+
+    for label in sort_labels:
+        candidates = page.get_by_text(label, exact=True)
+        try:
+            count = await candidates.count()
+            for i in range(min(count, 10)):
+                item = candidates.nth(i)
+                if not await item.is_visible():
+                    continue
+                try:
+                    await item.click(timeout=2500)
+                    clicked_sort = True
+                    await page.wait_for_timeout(700)
+                    break
+                except Exception:
+                    continue
+            if clicked_sort:
+                break
+        except Exception:
+            continue
+
+    # Some versions expose the control through an aria-label instead of text.
+    if not clicked_sort:
+        candidates = page.locator(
+            'button[aria-label*="relevant" i], '
+            'button[aria-label*="sort" i], '
+            '[role="button"][aria-label*="relevant" i]'
+        )
+        try:
+            for i in range(min(await candidates.count(), 20)):
+                item = candidates.nth(i)
+                if await item.is_visible():
+                    await item.click(timeout=2500)
+                    clicked_sort = True
+                    await page.wait_for_timeout(700)
+                    break
+        except Exception:
+            pass
+
+    if not clicked_sort:
+        return False
+
+    # After opening the sort menu, click the actual "Most recent" option.
+    recent_labels = ["Most recent", "Most Recent", "Recent"]
+    for label in recent_labels:
+        candidates = page.get_by_text(label, exact=True)
+        try:
+            count = await candidates.count()
+            for i in range(min(count, 10)):
+                item = candidates.nth(i)
+                if not await item.is_visible():
+                    continue
+                try:
+                    await item.click(timeout=3000)
+                    await page.wait_for_timeout(1800)
+                    return True
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    # Fallback for menuitem/button variants.
+    candidates = page.locator(
+        '[role="menuitem"], [role="option"], button, '
+        '[data-view-name*="sort" i]'
+    )
+    try:
+        for i in range(min(await candidates.count(), 100)):
+            item = candidates.nth(i)
+            if not await item.is_visible():
+                continue
+            txt = (await item.inner_text()).strip()
+            aria = (await item.get_attribute("aria-label") or "").strip()
+            if txt.lower() == "most recent" or aria.lower() == "most recent":
+                await item.click(timeout=3000)
+                await page.wait_for_timeout(1800)
+                return True
+    except Exception:
+        pass
+
+    return False
+
 def _comment_cards(page):
     selectors = [
         "article.comments-comment-item",
@@ -377,20 +472,44 @@ async def extract_with_local_chrome(
                 except Exception:
                     continue
 
-            for _ in range(20):
-                current_seen = {c.author.profile_url for c in comments}
+            # IMPORTANT: LinkedIn's default "Most relevant" view can hide
+            # comments that are lower in the ranking. Switch to "Most recent"
+            # before collecting anything, then allow the list to refresh.
+            switched = await _click_most_recent_comments(page)
+            if switched:
+                await page.wait_for_timeout(1500)
+
+            # Scroll the comments list repeatedly. LinkedIn virtualizes this
+            # list, so a single DOM query only sees the currently rendered cards.
+            stagnant_rounds = 0
+            previous_count = 0
+            for _ in range(35):
+                current_seen = {c.author.profile_url for c in comments if c.author.profile_url}
                 new_comments = await _extract_comments_from_page(
                     page, post, current_seen, comments_limit
                 )
-                existing_urls = {c.author.profile_url for c in comments}
+                existing_urls = {c.author.profile_url for c in comments if c.author.profile_url}
                 for comment in new_comments:
-                    if comment.author.profile_url not in existing_urls:
-                        comments.append(comment)
+                    if comment.author.profile_url and comment.author.profile_url in existing_urls:
+                        continue
+                    comments.append(comment)
+                    if comment.author.profile_url:
                         existing_urls.add(comment.author.profile_url)
+
                 if comments_limit > 0 and len(comments) >= comments_limit:
                     break
-                await page.mouse.wheel(0, 1600)
-                await page.wait_for_timeout(900)
+
+                if len(comments) == previous_count:
+                    stagnant_rounds += 1
+                else:
+                    stagnant_rounds = 0
+                    previous_count = len(comments)
+
+                await page.mouse.wheel(0, 1400)
+                await page.wait_for_timeout(1000)
+
+                if stagnant_rounds >= 6:
+                    break
 
         result = ExtractionResult(
             post=post,
