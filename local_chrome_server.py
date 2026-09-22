@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-app=FastAPI(title="LinkedIn Local Chrome Extractor",version="3.2")
+app=FastAPI(title="LinkedIn Local Chrome Extractor",version="3.3")
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
 
 class ExtractRequest(BaseModel):
@@ -35,6 +35,8 @@ class CDP:
         self.ws.settimeout(15);self.i=0
         r=self.cmd("Target.attachToTarget",{"targetId":t["id"],"flatten":True})
         self.session=r["sessionId"]
+        try:self.cmd("Target.activateTarget",{"targetId":t["id"]})
+        except Exception:pass
     def close(self):
         try:self.ws.close()
         except:pass
@@ -60,8 +62,19 @@ class CDP:
         return r.get("result",{}).get("value")
 
 def nav(c,url):
-    # Page.enable can hang on a cross-OS attached renderer; it is not required for Runtime.evaluate/Page.navigate.
-    c.pagecmd("Page.navigate",{"url":url},20)
+    # 完全绕过 Page domain；跨 Windows/Linux CDP 附加时只使用 Runtime.evaluate。
+    js="window.location.href="+json.dumps(url)
+    c.eval(js,15)
+    end=time.time()+20
+    target_url=url.split("#",1)[0].rstrip("/")
+    while time.time()<end:
+        try:
+            cur=c.eval("location.href",5) or ""
+            if cur.startswith(target_url) or ("linkedin.com" in cur.lower() and "login" not in cur.lower() and "authwall" not in cur.lower() and cur!="about:blank"):
+                break
+        except Exception:
+            pass
+        time.sleep(.5)
     time.sleep(3)
 
 def profile(x):
@@ -75,13 +88,13 @@ def author(c):
 
 def reactions(c,auth,limit):
     r=c.eval(r"""async(limit)=>{
-const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+const clean=s=>(s||"").replace(/s+/g," ").trim();
+const p=a=>{let m=(a.href||"").match(/https?://(?:www.)?linkedin.com/in/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(//$/,"")}:null};
+let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/d+[s,]*(?:reactions?|likes?)/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(!b)return {items:[],note:"未找到带数字的 reactions/likes 元素。"};
-b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1000));
+b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1200));
 let out=[],seen=new Set();
-for(let z=0;z<35&&!(limit>0&&out.length>=limit);z++){
+for(let z=0;z<40&&!(limit>0&&out.length>=limit);z++){
  let ds=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")],root=ds[ds.length-1];if(!root)break;
  for(let a of root.querySelectorAll("a[href*='/in/']")){let q=p(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(limit>0&&out.length>=limit)break}}
  let ns=[root,...root.querySelectorAll("*")],sc=ns.find(x=>x.scrollHeight>x.clientHeight+100)||root;sc.scrollTop=sc.scrollHeight;
@@ -89,7 +102,7 @@ for(let z=0;z<35&&!(limit>0&&out.length>=limit);z++){
 }
 document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));
 return {items:out.slice(0,limit>0?limit:undefined),note:""};
-}""",timeout=40)
+}""",timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in (r or {}).get("items",[]):
         p=profile(x)
@@ -98,12 +111,12 @@ return {items:out.slice(0,limit>0?limit:undefined),note:""};
 
 def comments(c,auth,limit):
     r=c.eval(r"""async(limit)=>{
-const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d*[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-if(b){b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,800))}
+const clean=s=>(s||"").replace(/s+/g," ").trim();
+const p=a=>{let m=(a.href||"").match(/https?://(?:www.)?linkedin.com/in/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(//$/,"")}:null};
+let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/d*[s,]*comments?/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+if(b){b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,900))}
 let out=[],seen=new Set();
-for(let z=0;z<30&&!(limit>0&&out.length>=limit);z++){
+for(let z=0;z<35&&!(limit>0&&out.length>=limit);z++){
  for(let a of document.querySelectorAll("a[href*='/in/']")){let q=p(a);if(!q||seen.has(q.profile_url))continue;let n=a,txt="";
   for(let i=0;i<8&&n;i++,n=n.parentElement){let s=((n.className||"")+" "+(n.getAttribute?.("data-view-name")||"")+" "+(n.getAttribute?.("data-test-id")||"")).toLowerCase();if(s.includes("comment")){txt=clean(n.innerText);break}}
   if(txt){let lines=txt.split("\n").map(clean).filter(Boolean),i=lines.findIndex(x=>x===q.name);seen.add(q.profile_url);out.push({...q,text:i>=0&&lines[i+1]?lines[i+1]:""});if(limit>0&&out.length>=limit)break}
@@ -111,7 +124,7 @@ for(let z=0;z<30&&!(limit>0&&out.length>=limit);z++){
  window.scrollBy(0,1300);await new Promise(r=>setTimeout(r,500));
 }
 return out.slice(0,limit>0?limit:undefined);
-}""",timeout=40)
+}""",timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in r or []:
         p=profile(x)
@@ -120,7 +133,7 @@ return out.slice(0,limit>0?limit:undefined);
     return out[:limit] if limit>0 else out
 
 def inspect(c):
-    return c.eval("""()=>({url:location.href,title:document.title,buttons:[...document.querySelectorAll("button,a,[role='button']")].slice(0,300).map(e=>({text:(e.innerText||"").trim(),aria:e.getAttribute("aria-label"),testid:e.getAttribute("data-test-id"),view:e.getAttribute("data-view-name")})),profiles:[...document.querySelectorAll("a[href*='/in/']")].slice(0,300).map(a=>({text:(a.innerText||"").trim(),href:a.href}))})""")
+    return c.eval("""()=>({url:location.href,title:document.title,ready:document.readyState,body:(document.body?.innerText||"").slice(0,5000),buttons:[...document.querySelectorAll("button,a,[role='button']")].slice(0,300).map(e=>({text:(e.innerText||"").trim(),aria:e.getAttribute("aria-label"),testid:e.getAttribute("data-test-id"),view:e.getAttribute("data-view-name")})),profiles:[...document.querySelectorAll("a[href*='/in/']")].slice(0,300).map(a=>({text:(a.innerText||"").trim(),href:a.href}))})""")
 
 @app.get("/",response_class=HTMLResponse)
 def home():
