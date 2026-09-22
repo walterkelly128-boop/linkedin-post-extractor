@@ -87,7 +87,7 @@ def author(c):
     return c.eval("""(()=>{for(const s of [".update-components-actor a[href*='/in/']",".feed-shared-actor__container a[href*='/in/']","a[href*='/in/'][data-test-id*='author']","a[href*='/in/'][data-view-name*='author']"]){const a=document.querySelector(s);if(a)return a.href}return ""})()""") or ""
 
 def reactions(c,auth,limit):
-    js=r"""async()=>{
+    js=r"""(async()=>{
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
 const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
@@ -101,7 +101,7 @@ for(let z=0;z<40&&out.length<__LIMIT__;z++){
  await new Promise(r=>setTimeout(r,500));
 }
 return {items:out,note:""};
-}"""
+})()"""
     r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in (r or {}).get("items",[]):
@@ -125,7 +125,7 @@ for(let z=0;z<35&&out.length<__LIMIT__;z++){
  window.scrollBy(0,1300);await new Promise(r=>setTimeout(r,500));
 }
 return out;
-}"""
+})()"""
     r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in r or []:
