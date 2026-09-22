@@ -87,68 +87,92 @@ def author(c):
     return c.eval("""(()=>{for(const s of [".update-components-actor a[href*='/in/']",".feed-shared-actor__container a[href*='/in/']","a[href*='/in/'][data-test-id*='author']","a[href*='/in/'][data-view-name*='author']"]){const a=document.querySelector(s);if(a)return a.href}return ""})()""") or ""
 
 def reactions(c,auth,limit):
-    expr="""(async()=>{
+    expr=f"""(async()=>{{
+        const limit={int(limit)};
         const clean=s=>(s||"").replace(/\\s+/g," ").trim();
-        const make=a=>{
+        const make=a=>{{
             const m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);
             if(!m)return null;
             let name=clean(a.innerText);
-            if(!name){
+            if(!name){{
                 let n=a;
-                for(let i=0;i<6&&n;i++,n=n.parentElement){
+                for(let i=0;i<6&&n;i++,n=n.parentElement){{
                     const t=clean(n.innerText);
-                    if(t&&t.length<180){name=t.split("\\n")[0].trim();if(name)break;}
-                }
-            }
-            return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")};
-        };
+                    if(t&&t.length<180){{name=t.split("\\n")[0].trim();if(name)break;}}
+                }}
+            }}
+            return {{name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")}};
+        }};
         const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-        if(!b)return {items:[],note:"未找到 reactions/likes 按钮"};
-        b.scrollIntoView({block:"center"});b.click();
+        if(!b)return {{items:[],note:"未找到 reactions/likes 按钮"}};
+        b.scrollIntoView({{block:"center"}});b.click();
         await new Promise(r=>setTimeout(r,1200));
         const out=[],seen=new Set();
-        for(let z=0;z<50&&out.length<limit;z++){
+        for(let z=0;z<50&&(limit<=0||out.length<limit);z++){{
             const ds=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")];
             const root=ds[ds.length-1];
             if(!root)break;
-            for(const a of root.querySelectorAll("a[href*='/in/']")){
+            for(const a of root.querySelectorAll("a[href*='/in/']")){{
                 const q=make(a);
-                if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>=limit)break;}
-            }
+                if(q&&!seen.has(q.profile_url)){{seen.add(q.profile_url);out.push(q);if(limit>0&&out.length>=limit)break;}}
+            }}
             const scrollables=[...root.querySelectorAll("*")].filter(x=>x.scrollHeight>x.clientHeight+100);
             const sc=scrollables.sort((x,y)=>y.scrollHeight-x.scrollHeight)[0]||root;
             sc.scrollTop=sc.scrollHeight;
             await new Promise(r=>setTimeout(r,600));
-        }
-        return {items:out,note:""};
-    })()"""
-    r=c.eval(expr,timeout=60) or {}
+        }}
+        return {{items:out,note:""}};
+    }})()"""
+    r=c.eval(expr,timeout=60) or {{}}
     ex=auth.rstrip("/")
     out=[];seen=set()
     for x in r.get("items",[]):
         p=profile(x)
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
             seen.add(p["profile_url"]);out.append(p)
-    return out[:limit],r.get("note","")
+    return out[:limit] if limit>0 else out,r.get("note","")
 
 def comments(c,auth,limit):
-    r=c.eval(r"""async(limit)=>{
-const clean=s=>(s||"").replace(/s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?://(?:www.)?linkedin.com/in/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(//$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/d*[s,]*comments?/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-if(b){b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,900))}
-let out=[],seen=new Set();
-for(let z=0;z<35&&!(limit>0&&out.length>=limit);z++){
- for(let a of document.querySelectorAll("a[href*='/in/']")){let q=p(a);if(!q||seen.has(q.profile_url))continue;let n=a,txt="";
-  for(let i=0;i<8&&n;i++,n=n.parentElement){let s=((n.className||"")+" "+(n.getAttribute?.("data-view-name")||"")+" "+(n.getAttribute?.("data-test-id")||"")).toLowerCase();if(s.includes("comment")){txt=clean(n.innerText);break}}
-  if(txt){let lines=txt.split("\n").map(clean).filter(Boolean),i=lines.findIndex(x=>x===q.name);seen.add(q.profile_url);out.push({...q,text:i>=0&&lines[i+1]?lines[i+1]:""});if(limit>0&&out.length>=limit)break}
- }
- window.scrollBy(0,1300);await new Promise(r=>setTimeout(r,500));
-}
-return out.slice(0,limit>0?limit:undefined);
-})(limit)""",timeout=45)
-    ex=auth.rstrip("/");out=[];seen=set()
-    for x in r or []:
+    expr=f"""(async()=>{{
+        const limit={int(limit)};
+        const clean=s=>(s||"").replace(/\\s+/g," ").trim();
+        const p=a=>{{
+            const m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);
+            if(!m)return null;
+            return {{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")}};
+        }};
+        const buttons=[...document.querySelectorAll("button,a,[role='button']")];
+        const b=buttons.find(e=>/\\b(?:\\d+[\\s,]*)?comments?\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+        if(b){{b.scrollIntoView({{block:"center"}});b.click();await new Promise(r=>setTimeout(r,900));}}
+        const out=[],seen=new Set();
+        for(let z=0;z<40&&(limit<=0||out.length<limit);z++){{
+            for(const a of document.querySelectorAll("a[href*='/in/']")){{
+                const q=p(a);
+                if(!q||seen.has(q.profile_url))continue;
+                let node=a,text="";
+                for(let i=0;i<10&&node;i++,node=node.parentElement){{
+                    const meta=((node.className||"")+" "+(node.getAttribute?.("data-view-name")||"")+" "+(node.getAttribute?.("data-test-id")||"")).toLowerCase();
+                    if(meta.includes("comment")){{text=clean(node.innerText);break;}}
+                }}
+                if(text){{
+                    const lines=text.split("\\n").map(clean).filter(Boolean);
+                    const idx=lines.findIndex(x=>x===q.name);
+                    seen.add(q.profile_url);
+                    out.push({{...q,text:idx>=0&&lines[idx+1]?lines[idx+1]:""}});
+                    if(limit>0&&out.length>=limit)break;
+                }}
+            }}
+            const more=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/more comments|show more comments|显示更多评论|更多评论/i.test(clean(e.innerText||e.getAttribute("aria-label"))));
+            if(more){{more.click();await new Promise(r=>setTimeout(r,700));}}
+            window.scrollBy(0,1200);
+            await new Promise(r=>setTimeout(r,500));
+        }}
+        return out.slice(0,limit>0?limit:undefined);
+    }})()"""
+    r=c.eval(expr,timeout=60) or []
+    ex=auth.rstrip("/")
+    out=[];seen=set()
+    for x in r:
         p=profile(x)
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
             seen.add(p["profile_url"]);out.append({"name":p["name"],"profile_url":p["profile_url"],"text":x.get("text","")})
