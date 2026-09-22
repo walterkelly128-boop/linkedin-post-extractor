@@ -62,7 +62,6 @@ class CDP:
         return r.get("result",{}).get("value")
 
 def nav(c,url):
-    # 完全绕过 Page domain；跨 Windows/Linux CDP 附加时只使用 Runtime.evaluate。
     js="window.location.href="+json.dumps(url)
     c.eval(js,15)
     end=time.time()+20
@@ -72,8 +71,7 @@ def nav(c,url):
             cur=c.eval("location.href",5) or ""
             if cur.startswith(target_url) or ("linkedin.com" in cur.lower() and "login" not in cur.lower() and "authwall" not in cur.lower() and cur!="about:blank"):
                 break
-        except Exception:
-            pass
+        except Exception: pass
         time.sleep(.5)
     time.sleep(3)
 
@@ -84,122 +82,66 @@ def profile(x):
     return {"name":(x.get("text") or "").strip() or m.group(1).replace("-"," "),"profile_url":"https://www.linkedin.com/in/"+m.group(1).rstrip("/")}
 
 def author(c):
-    return c.eval("""(()=>{const m=[...document.querySelectorAll("button[aria-label^='Open control menu for post by']")][0];if(m){let n=m;for(let i=0;i<8&&n;i++,n=n.parentElement){const a=n.querySelector("a[href*='/in/']");if(a)return a.href}}const links=[...document.querySelectorAll("a[href*='/in/']")];return links.find(a=>{let n=a;for(let i=0;i<5&&n;i++,n=n.parentElement){const t=n.innerText||"";if(/Open control menu for post by|\\bFollow\\b/i.test(t)&&t.length<500)return true}return false})?.href||""})()""") or ""
+    return c.eval("""(()=>{for(const s of [".update-components-actor a[href*='/in/']",".feed-shared-actor__container a[href*='/in/']","a[href*='/in/'][data-test-id*='author']","a[href*='/in/'][data-view-name*='author']"]){const a=document.querySelector(s);if(a)return a.href}return ""})()""") or ""
 
 def reactions(c,auth,limit):
-    expr=f"""(async()=>{{
-        const limit={int(limit)};
-        const auth={json.dumps(auth or "")};
-        const auth={json.dumps(auth or "")};
-        const clean=s=>(s||"").replace(/\\s+/g," ").trim();
-        const norm=u=>u.replace(/\\/$/,"");
-        const make=a=>{{
-            const m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);
+    expr="""(async()=>{
+        const clean=s=>(s||"").replace(/\s+/g," ").trim();
+        const make=a=>{
+            const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);
             if(!m)return null;
-            let name=clean(a.innerText)||m[1].replace(/-/g," ");
-            return {{name:name.split("\\n")[0].trim(),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")}};
-        }};
-        const before=new Set([...document.querySelectorAll("a[href*='/in/']")].map(a=>norm(a.href)));
-        const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-        if(!b)return {{items:[],note:"未找到 reactions/likes 按钮"}};
-        b.scrollIntoView({{block:"center"}});b.click();
-        await new Promise(r=>setTimeout(r,1500));
-        const roots=[...document.querySelectorAll("[role='dialog'],.artdeco-modal,[aria-label*='reaction' i],[aria-label*='reactor' i]")];
-        const root=roots[roots.length-1];
-        const source=root||document;
+            let name=clean(a.innerText);
+            if(!name){let n=a;for(let i=0;i<6&&n;i++,n=n.parentElement){const t=clean(n.innerText);if(t&&t.length<180){name=t.split("\n")[0].trim();if(name)break;}}}
+            return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")};
+        };
+        const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+        if(!b)return {items:[],note:"未找到 reactions/likes 按钮"};
+        b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1200));
         const out=[],seen=new Set();
-        for(const a of source.querySelectorAll("a[href*='/in/']")){{
-            const q=make(a);
-            if(q&&!seen.has(q.profile_url)&&q.profile_url!==norm(auth)){{seen.add(q.profile_url);out.push(q);if(limit>0&&out.length>=limit)break;}}
-        }}
-        if(out.length===0){{
-            for(const a of document.querySelectorAll("a[href*='/in/']")){{
-                const q=make(a);
-                if(q&&!before.has(q.profile_url)&&!seen.has(q.profile_url)&&q.profile_url!==norm(auth||"")){{seen.add(q.profile_url);out.push(q);if(limit>0&&out.length>=limit)break;}}
-            }}
-        }}
-        return {{items:out,note:root?"":"反应弹窗未被识别；已尝试提取点击后新增的个人主页链接"}};
-    }})()"""
-    r=c.eval(expr,timeout=60) or {{}}
+        for(let z=0;z<50&&out.length<""" + str(100) + """;z++){
+            const ds=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")],root=ds[ds.length-1];if(!root)break;
+            for(const a of root.querySelectorAll("a[href*='/in/']")){const q=make(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>=""" + str(100) + """)break;}}
+            const scrollables=[...root.querySelectorAll("*")].filter(x=>x.scrollHeight>x.clientHeight+100);
+            const sc=scrollables.sort((x,y)=>y.scrollHeight-x.scrollHeight)[0]||root;sc.scrollTop=sc.scrollHeight;
+            await new Promise(r=>setTimeout(r,600));
+        }
+        return {items:out,note:""};
+    })()"""
+    r=c.eval(expr,timeout=60) or {}
     ex=auth.rstrip("/")
     out=[];seen=set()
     for x in r.get("items",[]):
         p=profile(x)
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
             seen.add(p["profile_url"]);out.append(p)
-    return out[:limit] if limit>0 else out,r.get("note","")
+    return out[:limit],r.get("note","")
 
 def comments(c,auth,limit):
-    expr=f"""(async()=>{{
-        const limit={int(limit)};
-        const clean=s=>(s||"").replace(/\\s+/g," ").trim();
-        const p=a=>{{
-            const m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);
-            if(!m)return null;
-            return {{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")}};
-        }};
-        const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^comment$/i.test(clean(e.innerText))||/\\bcomments?\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-        if(b){{b.scrollIntoView({{block:"center"}});b.click();await new Promise(r=>setTimeout(r,1000));}}
-        const out=[],seen=new Set();
-        for(let z=0;z<40&&(limit<=0||out.length<limit);z++){{
-            for(const a of document.querySelectorAll("a[href*='/in/']")){{
-                const q=p(a);
-                if(!q||seen.has(q.profile_url)||q.profile_url===auth.replace(/\\/$/,""))continue;
-                let node=a,container=null;
-                for(let i=0;i<12&&node;i++,node=node.parentElement){{
-                    const tag=(node.tagName||"").toLowerCase();
-                    const txt=clean(node.innerText);
-                    const meta=((node.className||"")+" "+(node.getAttribute?.("data-view-name")||"")+" "+(node.getAttribute?.("data-test-id")||"")).toLowerCase();
-                    if(tag==="article"||meta.includes("comment")||(txt.includes(q.name)&&txt.length>40&&txt.length<2000)){{container=node;break;}}
-                }}
-                if(!container)continue;
-                const lines=container.innerText.split("\\n").map(clean).filter(Boolean);
-                const idx=lines.findIndex(x=>x===q.name||x.startsWith(q.name+" "));
-                let commentText="";
-                if(idx>=0){{
-                    for(let j=idx+1;j<lines.length;j++){{
-                        const s=lines[j];
-                        if(s&&!/^(3rd\\+|2nd|1st|Follow|Reply|Dismiss|\\d+)$/.test(s)&&!/^Most relevant$/i.test(s)&&s!==q.name){{commentText=s;break;}}
-                    }}
-                }}
-                seen.add(q.profile_url);
-                out.push({{...q,text:commentText}});
-                if(limit>0&&out.length>=limit)break;
-            }}
-            const more=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/more comments|show more comments|显示更多评论|更多评论/i.test(clean(e.innerText||e.getAttribute("aria-label"))));
-            if(more){{more.click();await new Promise(r=>setTimeout(r,700));}}
-            window.scrollBy(0,1200);
-            await new Promise(r=>setTimeout(r,500));
-        }}
-        return out.slice(0,limit>0?limit:undefined);
-    }})()"""
-    r=c.eval(expr,timeout=60) or []
+    r=c.eval(r"""async(limit)=>{
+const clean=s=>(s||"").replace(/s+/g," ").trim();
+const p=a=>{let m=(a.href||"").match(/https?://(?:www.)?linkedin.com/in/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(//$/,"")}:null};
+let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/d*[s,]*comments?/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+if(b){b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,900))}
+let out=[],seen=new Set();
+for(let z=0;z<35&&!(limit>0&&out.length>=limit);z++){
+ for(let a of document.querySelectorAll("a[href*='/in/']")){let q=p(a);if(!q||seen.has(q.profile_url))continue;let n=a,txt="";
+  for(let i=0;i<8&&n;i++,n=n.parentElement){let s=((n.className||"")+" "+(n.getAttribute?.("data-view-name")||"")+" "+(n.getAttribute?.("data-test-id")||"")).toLowerCase();if(s.includes("comment")){txt=clean(n.innerText);break}}
+  if(txt){let lines=txt.split("\n").map(clean).filter(Boolean),i=lines.findIndex(x=>x===q.name);seen.add(q.profile_url);out.push({...q,text:i>=0&&lines[i+1]?lines[i+1]:""});if(limit>0&&out.length>=limit)break}
+ }
+ window.scrollBy(0,1300);await new Promise(r=>setTimeout(r,500));
+}
+return out.slice(0,limit>0?limit:undefined);
+}(50))""",timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
-    for x in r:
+    for x in r or []:
         p=profile(x)
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
             seen.add(p["profile_url"]);out.append({"name":p["name"],"profile_url":p["profile_url"],"text":x.get("text","")})
     return out[:limit] if limit>0 else out
 
 def inspect(c):
-    raw=c.eval("""JSON.stringify({
-        url:location.href,
-        title:document.title,
-        ready:document.readyState,
-        body:(document.body?.innerText||"").slice(0,5000),
-        buttons:[...document.querySelectorAll("button,a,[role='button']")].slice(0,300).map(e=>({
-            text:(e.innerText||"").trim(),
-            aria:e.getAttribute("aria-label"),
-            testid:e.getAttribute("data-test-id"),
-            view:e.getAttribute("data-view-name")
-        })),
-        profiles:[...document.querySelectorAll("a[href*='/in/']")].slice(0,300).map(a=>({
-            text:(a.innerText||"").trim(),
-            href:a.href
-        }))
-    })""")
-    if not raw:
-        raise RuntimeError("Chrome Runtime.evaluate 没有返回 inspect 数据。")
+    raw=c.eval("""JSON.stringify({url:location.href,title:document.title,ready:document.readyState,body:(document.body?.innerText||"").slice(0,5000),buttons:[...document.querySelectorAll("button,a,[role='button']")].slice(0,300).map(e=>({text:(e.innerText||"").trim(),aria:e.getAttribute("aria-label"),testid:e.getAttribute("data-test-id"),view:e.getAttribute("data-view-name")})),profiles:[...document.querySelectorAll("a[href*='/in/']")].slice(0,300).map(a=>({text:(a.innerText||"").trim(),href:a.href}))})""")
+    if not raw:raise RuntimeError("Chrome Runtime.evaluate 没有返回 inspect 数据。")
     return json.loads(raw)
 
 @app.get("/",response_class=HTMLResponse)
