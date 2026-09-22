@@ -131,7 +131,25 @@ return out.slice(0,limit>0?limit:undefined);
     return out[:limit] if limit>0 else out
 
 def inspect(c):
-    return c.eval("""(()=>({url:location.href,title:document.title,ready:document.readyState,body:(document.body?.innerText||"").slice(0,5000),buttons:[...document.querySelectorAll("button,a,[role='button']")].slice(0,300).map(e=>({text:(e.innerText||"").trim(),aria:e.getAttribute("aria-label"),testid:e.getAttribute("data-test-id"),view:e.getAttribute("data-view-name")})),profiles:[...document.querySelectorAll("a[href*='/in/']")].slice(0,300).map(a=>({text:(a.innerText||"").trim(),href:a.href}))})())""")
+    raw=c.eval("""JSON.stringify({
+        url:location.href,
+        title:document.title,
+        ready:document.readyState,
+        body:(document.body?.innerText||"").slice(0,5000),
+        buttons:[...document.querySelectorAll("button,a,[role='button']")].slice(0,300).map(e=>({
+            text:(e.innerText||"").trim(),
+            aria:e.getAttribute("aria-label"),
+            testid:e.getAttribute("data-test-id"),
+            view:e.getAttribute("data-view-name")
+        })),
+        profiles:[...document.querySelectorAll("a[href*='/in/']")].slice(0,300).map(a=>({
+            text:(a.innerText||"").trim(),
+            href:a.href
+        }))
+    })""")
+    if not raw:
+        raise RuntimeError("Chrome Runtime.evaluate 没有返回 inspect 数据。")
+    return json.loads(raw)
 
 @app.get("/",response_class=HTMLResponse)
 def home():
