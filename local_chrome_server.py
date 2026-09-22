@@ -87,48 +87,53 @@ def author(c):
     return c.eval("""(()=>{for(const s of [".update-components-actor a[href*='/in/']",".feed-shared-actor__container a[href*='/in/']","a[href*='/in/'][data-test-id*='author']","a[href*='/in/'][data-view-name*='author']"]){const a=document.querySelector(s);if(a)return a.href}return ""})()""") or ""
 
 def reactions(c,auth,limit):
-    r=c.eval(f"""async()=>{
+    js=r"""async()=>{
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
+const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(!b)return {items:[],note:"未找到 reactions/likes 按钮"};
 b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1200));
 let out=[],seen=new Set();
-for(let z=0;z<40&&out.length<{limit};z++){
+for(let z=0;z<40&&out.length<__LIMIT__;z++){
  const ds=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")],root=ds[ds.length-1];if(!root)break;
- for(const a of root.querySelectorAll("a[href*='/in/']")){const q=p(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>={limit})break}}
+ for(const a of root.querySelectorAll("a[href*='/in/']")){const q=p(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>=__LIMIT__)break}}
  const sc=[...root.querySelectorAll("*")].find(x=>x.scrollHeight>x.clientHeight+100)||root;sc.scrollTop=sc.scrollHeight;
  await new Promise(r=>setTimeout(r,500));
 }
 return {items:out,note:""};
-}""",timeout=45)
+}"""
+    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in (r or {}).get("items",[]):
         p=profile(x)
-        if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:seen.add(p["profile_url"]);out.append(p)
+        if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
+            seen.add(p["profile_url"]);out.append(p)
     return out[:limit],(r or {}).get("note","")
+
 def comments(c,auth,limit):
-    r=c.eval(f"""async()=>{
+    js=r"""async()=>{
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
+const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(b){b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,900))}
 let out=[],seen=new Set();
-for(let z=0;z<35&&!({limit}>0&&out.length>={limit});z++){
- for(let a of document.querySelectorAll("a[href*='/in/']")){let q=p(a);if(!q||seen.has(q.profile_url))continue;let n=a,txt="";
-  for(let i=0;i<8&&n;i++,n=n.parentElement){let s=((n.className||"")+" "+(n.getAttribute?.("data-view-name")||"")+" "+(n.getAttribute?.("data-test-id")||"")).toLowerCase();if(s.includes("comment")){txt=clean(n.innerText);break}}
-  if(txt){let lines=txt.split("\n").map(clean).filter(Boolean),i=lines.findIndex(x=>x===q.name);seen.add(q.profile_url);out.push({...q,text:i>=0&&lines[i+1]?lines[i+1]:""});if(limit>0&&out.length>=limit)break}
+for(let z=0;z<35&&out.length<__LIMIT__;z++){
+ for(const a of document.querySelectorAll("a[href*='/in/']")){const q=p(a);if(!q||seen.has(q.profile_url))continue;let n=a,txt="";
+  for(let i=0;i<8&&n;i++,n=n.parentElement){const s=((n.className||"")+" "+(n.getAttribute?.("data-view-name")||"")+" "+(n.getAttribute?.("data-test-id")||"")).toLowerCase();if(s.includes("comment")){txt=clean(n.innerText);break}}
+  if(txt){const lines=txt.split("\n").map(clean).filter(Boolean),i=lines.findIndex(x=>x===q.name);seen.add(q.profile_url);out.push({...q,text:i>=0&&lines[i+1]?lines[i+1]:""});if(out.length>=__LIMIT__)break}
  }
  window.scrollBy(0,1300);await new Promise(r=>setTimeout(r,500));
 }
-return out.slice(0,{limit}>0?{limit}:undefined);
-}""",timeout=45)
+return out;
+}"""
+    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in r or []:
         p=profile(x)
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
             seen.add(p["profile_url"]);out.append({"name":p["name"],"profile_url":p["profile_url"],"text":x.get("text","")})
-    return out[:limit] if limit>0 else out
+    return out[:limit]
+
 
 def inspect(c):
     raw=c.eval("""JSON.stringify({
