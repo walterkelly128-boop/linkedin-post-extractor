@@ -62,15 +62,20 @@ class CDP:
         return r.get("result",{}).get("value")
 
 def nav(c,url):
-    # 完全绕过 Page domain；跨 Windows/Linux CDP 附加时只使用 Runtime.evaluate。
-    js="window.location.href="+json.dumps(url)
-    c.eval(js,15)
-    end=time.time()+20
+    # 跨 Windows/Linux CDP 附加时只使用 Runtime.evaluate；同一 URL 时强制刷新，避免复用旧 DOM。
     target_url=url.split("#",1)[0].rstrip("/")
+    cur=c.eval("location.href",5) or ""
+    if cur.split("#",1)[0].rstrip("/")==target_url:
+        c.eval("location.reload()",15)
+    else:
+        c.eval("window.location.href="+json.dumps(url),15)
+    end=time.time()+25
     while time.time()<end:
         try:
             cur=c.eval("location.href",5) or ""
-            if cur.startswith(target_url) or ("linkedin.com" in cur.lower() and "login" not in cur.lower() and "authwall" not in cur.lower() and cur!="about:blank"):
+            state=c.eval("document.readyState",5) or ""
+            body=c.eval("document.body?.innerText||''",5) or ""
+            if cur.split("#",1)[0].rstrip("/")==target_url and state=="complete" and len(body)>500:
                 break
         except Exception:
             pass
@@ -255,6 +260,31 @@ return {before,after:{url:location.href,title:document.title},link_count:links.l
         return c.eval(js,55)
     except Exception as e:
         raise HTTPException(502,detail=f"调试失败：{type(e).__name__}: {e}")
+    finally:
+        if c:c.close()
+
+@app.post("/api/debug-comments")
+def api_debug_comments(req:ExtractRequest):
+    c=None
+    try:
+        c=CDP(target());nav(c,req.url)
+        js=r"""(async function(){
+const clean=s=>(s||"").replace(/\s+/g," ").trim();
+const all=[...document.querySelectorAll("button,a,[role='button']")];
+const cb=all.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1400));}
+const sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant$/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))));
+if(sort){sort.click();await new Promise(r=>setTimeout(r,500));}
+const recent=[...document.querySelectorAll("button,a,[role='button'],li")].find(e=>/^most recent$/i.test(clean(e.innerText)));
+if(recent){recent.click();await new Promise(r=>setTimeout(r,1600));}
+const sels=[".comments-comment-item",".comments-comment-entity","article[data-view-name*='comment']","div[data-view-name*='comment']","[data-test-id*='comment']"];
+const nodes=[];
+for(const s of sels) for(const n of document.querySelectorAll(s)) nodes.push({selector:s,tag:n.tagName,cls:(typeof n.className==="string"?n.className:"").slice(0,400),text:clean(n.innerText).slice(0,2000),links:[...n.querySelectorAll("a[href*='/in/']")].map(a=>({text:clean(a.innerText),href:a.href})).slice(0,10)});
+return {url:location.href,body:clean(document.body?.innerText||"").slice(0,7000),nodes:nodes.slice(0,30),profiles:[...document.querySelectorAll("a[href*='/in/']")].slice(0,40).map(a=>({text:clean(a.innerText),href:a.href}))};
+})()""";
+        return c.eval(js,55)
+    except Exception as e:
+        raise HTTPException(502,detail=f"调试评论失败：{type(e).__name__}: {e}")
     finally:
         if c:c.close()
 
