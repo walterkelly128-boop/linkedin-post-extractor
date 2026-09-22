@@ -143,31 +143,106 @@ return {items:out,note:root?"":"未定位到包含 All N N 的 reactions 用户�
 
 def comments(c,auth,limit):
     js=r"""(async function(){
-const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);if(!m)return null;let name=clean(a.innerText);if(!name){let n=a;for(let i=0;i<5&&n;i++,n=n.parentElement){const x=[...(n.querySelectorAll?.("a[href*='/in/']")||[])].map(e=>clean(e.innerText)).find(Boolean);if(x){name=x;break}}}name=name.replace(/\s*[•·]\s*3rd\+.*$/i,"").trim();return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")};};
+const clean=s=>(s||"").replace(/\\s+/g," ").trim();
+const profileFrom=a=>{
+  const m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);
+  if(!m)return null;
+  let name=clean(a.innerText||"");
+  if(!name){
+    let n=a;
+    for(let i=0;i<6&&n;i++,n=n.parentElement){
+      const vals=[...(n.querySelectorAll?.("a[href*='/in/']")||[])].map(x=>clean(x.innerText||"")).filter(Boolean);
+      const v=vals.find(x=>!/^Joe Hua$/i.test(x));
+      if(v){name=v;break}
+    }
+  }
+  name=name.replace(/\\s*[•·]\\s*(?:2nd|3rd|1st)\\+?.*$/i,"").trim();
+  return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")};
+};
+const clickVisibleText=async(text)=>{
+  const nodes=[...document.querySelectorAll("button,a,[role='button'],li")].filter(e=>{
+    const s=clean(e.innerText||e.getAttribute("aria-label")||"");
+    const r=e.getBoundingClientRect?.();
+    return new RegExp("^"+text+"$","i").test(s)&&(!r||r.width>0&&r.height>0);
+  });
+  const e=nodes[nodes.length-1];
+  if(e){e.scrollIntoView({block:"center"});e.click();await new Promise(r=>setTimeout(r,2200));return true}
+  return false;
+};
 const els=[...document.querySelectorAll("button,a,[role='button']")];
-const cb=els.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1600));}
-let sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant(?:\s|$)/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))||""));
-if(sort){sort.click();await new Promise(r=>setTimeout(r,500));}
-let recent=[...document.querySelectorAll("button,a,[role='button'],li")].find(e=>/^most recent(?:\s|$)/i.test(clean(e.innerText)||"")&&clean(e.innerText).length<160);
-if(recent){recent.click();await new Promise(r=>setTimeout(r,2200));}
-for(let i=0;i<8;i++){window.scrollBy(0,900);await new Promise(r=>setTimeout(r,500));}
-let out=[],seen=new Set();
+const cb=els.find(e=>/\\b\\d+[\\s,]*comments?\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1800));}
+let sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant$/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))||""));
+if(sort){sort.scrollIntoView({block:"center"});sort.click();await new Promise(r=>setTimeout(r,500));}
+await clickVisibleText("Most recent");
+
+// LinkedIn virtualizes the comments list. Scroll every likely scroll container so
+// additional comments/replies are rendered instead of relying on window.scrollBy().
+for(let pass=0;pass<10;pass++){
+  const boxes=[...document.querySelectorAll("div,section,ul,main")].filter(e=>{
+    const t=clean(e.innerText||"");
+    return t.length>30&&t.length<12000&&/Follow/i.test(t)&&e.scrollHeight>e.clientHeight+80;
+  });
+  for(const box of boxes.slice(0,12)){
+    box.scrollTop=box.scrollHeight;
+  }
+  window.scrollBy(0,700);
+  await new Promise(r=>setTimeout(r,700));
+}
+
+// A comment card in the current LinkedIn DOM has a profile link and a nearby
+// container with 1-3 profile links, a Follow action, a timestamp and the
+// comment text. Do not use LinkedIn's unstable generated class names.
+const cards=[];
+const seenCards=new Set();
 for(const a of document.querySelectorAll("a[href*='/in/']")){
- const q=p(a);if(!q||seen.has(q.profile_url))continue;
- let n=a,box=null;
- for(let k=0;k<10&&n;k++,n=n.parentElement){const txt=clean(n.innerText||"");const links=n.querySelectorAll?.("a[href*='/in/']").length||0;if(links>=1&&links<=3&&txt.length>40&&txt.length<1200&&/\bFollow\b/i.test(txt)&&/\b\d+\s*\d+\s*\d+\b/.test(txt)&&(/Can I get a sample|sample of this RDP|\bFollow\b.*\b(?:1w|1d|h)\b/i.test(txt))){box=n;break}}
- if(!box)continue;
- const lines=(box.innerText||"").split("\n").map(clean).filter(Boolean);let text="";
- const fi=lines.findIndex(x=>/^follow$/i.test(x));
- if(fi>=0)for(let k=fi+1;k<lines.length;k++){const s=lines[k];if(!s||/^(like|reply|follow|more)$/i.test(s)||/^\d+$/.test(s)||/^\d+\s*(likes?|replies?|comments?)$/i.test(s)||/^some replies may not be displayed/i.test(s))continue;text=s;break}
- if(!text){const raw=clean(box.innerText||"");const m=raw.match(/\bFollow\b\s+(.+?)(?=\s+\d+(?:\s+\d+){1,2}(?:\s|$))/i);if(m)text=clean(m[1])}
- seen.add(q.profile_url);out.push({...q,text});if(out.length>=__LIMIT__)break;
+  const q=profileFrom(a); if(!q)continue;
+  let n=a,box=null;
+  for(let k=0;k<=8&&n;k++,n=n.parentElement){
+    const txt=clean(n.innerText||"");
+    const links=n.querySelectorAll?.("a[href*='/in/']").length||0;
+    if(links>=1&&links<=3&&txt.length>=45&&txt.length<1800&&
+       /\\bFollow\\b/i.test(txt)&&
+       /(?:\\b\\d+[smhdwmy]\\b|\\b\\d+\\s*(?:day|days|week|weeks|month|months|hour|hours)\\b)/i.test(txt)){
+      const lines=(n.innerText||"").split("\\n").map(clean).filter(Boolean);
+      const qi=lines.findIndex(x=>x.toLowerCase()===q.name.toLowerCase());
+      if(qi>=0){box=n;break}
+      // The anchor text can be empty; accept the compact comment card shape.
+      if(k>=3) {box=n;break}
+    }
+  }
+  if(!box)continue;
+  const key=q.profile_url+"|"+clean(box.innerText||"");
+  if(seenCards.has(key))continue;
+  seenCards.add(key);
+  cards.push({q,box});
+}
+
+const out=[];
+for(const {q,box} of cards){
+  const lines=(box.innerText||"").split("\\n").map(clean).filter(Boolean);
+  let text="";
+  // Prefer the text after the Follow/timestamp metadata and before reaction counts.
+  for(let i=0;i<lines.length;i++){
+    const s=lines[i];
+    if(!s||/^follow$/i.test(s)||/^(like|reply|more|dismiss)$/i.test(s)||/^\\d+$/.test(s)||
+       /^\\d+\\s*(?:likes?|replies?|comments?)$/i.test(s))continue;
+    if(/^\\d+[smhdwmy]$/i.test(s)||/^\\d+\\s*(?:day|days|week|weeks|month|months|hour|hours)$/i.test(s))continue;
+    if(/^(?:2nd|3rd|1st)\\+$/i.test(s))continue;
+    if(/^[A-Za-z.]+\\s+(?:2nd|3rd|1st)\\+$/i.test(s))continue;
+    if(i>0 && lines.slice(0,i).some(x=>/^follow$/i.test(x))){text=s;break}
+  }
+  if(!text){
+    const raw=clean(box.innerText||"");
+    const m=raw.match(/(?:\\b\\d+[smhdwmy]\\b|\\b\\d+\\s*(?:day|days|week|weeks|month|months|hour|hours)\\b)\\s+Follow\\s+(.+?)(?=\\s+\\d+(?:\\s+\\d+){0,2}(?:\\s|$))/i);
+    if(m)text=clean(m[1]);
+  }
+  if(text && !out.some(x=>x.profile_url===q.profile_url))out.push({...q,text});
+  if(out.length>=__LIMIT__)break;
 }
 return out;
-})()"""
-    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=55)
+})()""";
+    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=70)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in r or []:
         p=profile(x)
