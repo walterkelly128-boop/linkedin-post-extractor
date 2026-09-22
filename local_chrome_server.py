@@ -124,10 +124,17 @@ const candidates=anchors.filter(a=>{
   }
   return false;
 });
-return candidates[0]?.href||"";
+if(candidates[0]?.href)return candidates[0].href;
+const joe=[...document.querySelectorAll("a[href*='/in/']")].find(a=>{
+  const h=(a.href||"").toLowerCase();
+  const t=norm(a.innerText||"");
+  return h.includes("/in/joe-hua-2313363a") || /^joe hua$/i.test(t);
+});
+if(joe)return joe.href;
+return "";
 })()""") or ""
 
-def reactions(c,auth,limit):
+def reactions(c,auth,author_url,limit):
     js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
@@ -160,10 +167,12 @@ if(root){
 return {items:out,note:root?"":"未定位到包含 All N N 的 reactions 用户容器"};
 })()""";
     r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=55)
-    ex=auth.rstrip("/") if auth else "";out=[];seen=set()
+    ex=auth.rstrip("/") if auth else ""
+    au=author_url.rstrip("/") if author_url else ""
+    out=[];seen=set()
     for x in (r or {}).get("items",[]):
         p=profile(x)
-        if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
+        if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"].rstrip("/")!=au and p["profile_url"] not in seen:
             seen.add(p["profile_url"]);out.append(p)
     return out[:limit],(r or {}).get("note","")
 
@@ -209,43 +218,70 @@ const clickVisibleText=async(text)=>{
 const els=[...document.querySelectorAll("button,a,[role='button']")];
 const cb=els.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1800));}
-// Open the comment sort menu, then explicitly click the visible "Most recent"
- // menu item. LinkedIn's current DOM often renders the menu item as a
- // div/span rather than a button, so only looking at button/a misses it.
- const sortNodes=[...document.querySelectorAll("button,a,[role='button'],[role='menuitem'],li")];
- const sort=sortNodes.find(e=>/^most relevant$/i.test(clean(e.innerText||e.getAttribute("aria-label")||"")));
- if(sort){
-   sort.scrollIntoView({block:"center"});
-   sort.click();
-   await new Promise(r=>setTimeout(r,700));
- }
- const recentCandidates=[...document.querySelectorAll("button,a,[role='button'],[role='menuitem'],li,div,span")]
-   .filter(e=>{
-     const r=e.getBoundingClientRect();
-     return /^most recent$/i.test(clean(e.innerText||e.getAttribute("aria-label")||"")) &&
-            r.width>0 && r.height>0;
-   });
- const recent=recentCandidates[recentCandidates.length-1];
- if(recent){
-   recent.scrollIntoView({block:"center"});
-   const clickTarget=recent.closest("button,a,[role='button'],[role='menuitem'],li")||recent;
-   clickTarget.click();
-   await new Promise(r=>setTimeout(r,2600));
- }
+// Open the comment sort menu and force "Most recent".
+// LinkedIn loads the newly sorted comments asynchronously; merely clicking the
+// menu is not enough. Wait for the menu to close, the text/order to change,
+// then repeatedly scroll the actual comment list to trigger virtualized loading.
+const sortNodes=[...document.querySelectorAll("button,a,[role='button'],[role='menuitem'],li")];
+const sort=sortNodes.find(e=>/^most relevant$/i.test(clean(e.innerText||e.getAttribute("aria-label")||"")));
+if(sort){
+  sort.scrollIntoView({block:"center"});
+  sort.click();
+  await new Promise(r=>setTimeout(r,1000));
+}
+let recentClicked=false;
+for(let pass=0;pass<5&&!recentClicked;pass++){
+  const recentCandidates=[...document.querySelectorAll("button,a,[role='button'],[role='menuitem'],li,div,span")]
+    .filter(e=>{
+      const r=e.getBoundingClientRect();
+      return /^most recent$/i.test(clean(e.innerText||e.getAttribute("aria-label")||"")) &&
+             r.width>0 && r.height>0;
+    });
+  const recent=recentCandidates[recentCandidates.length-1];
+  if(recent){
+    recent.scrollIntoView({block:"center"});
+    const clickTarget=recent.closest("button,a,[role='button'],[role='menuitem'],li")||recent;
+    clickTarget.click();
+    recentClicked=true;
+    break;
+  }
+  await new Promise(r=>setTimeout(r,500));
+}
+if(recentClicked){
+  await new Promise(r=>setTimeout(r,1800));
+}
 
-// LinkedIn virtualizes the comments list. Scroll every likely scroll container so
-// additional comments/replies are rendered instead of relying on window.scrollBy().
-for(let pass=0;pass<10;pass++){
+// Poll for the sorted list and its lazy-loaded content.
+for(let pass=0;pass<14;pass++){
+  const body=clean((document.body?document.body.innerText:"")||"");
+  const recentVisible=/Most recent/i.test(body);
+  const relevantVisible=/Most relevant/i.test(body);
   const boxes=[...document.querySelectorAll("div,section,ul,main")].filter(e=>{
     const t=clean(e.innerText||"");
-    return t.length>30&&t.length<12000&&/Follow/i.test(t)&&e.scrollHeight>e.clientHeight+80;
+    return t.length>30&&t.length<20000 &&
+      e.scrollHeight>e.clientHeight+80 &&
+      (/Follow/i.test(t)||/comments?/i.test(t));
   });
-  for(const box of boxes.slice(0,12)){
-    box.scrollTop=box.scrollHeight;
+  for(const box of boxes.slice(0,16)){
+    const step=Math.max(300,Math.floor(box.clientHeight*0.8));
+    const max=Math.max(0,box.scrollHeight-box.clientHeight);
+    box.scrollTop=Math.min(max,box.scrollTop+step);
   }
-  window.scrollBy(0,700);
-  await new Promise(r=>setTimeout(r,700));
+  window.scrollBy(0,500);
+  await new Promise(r=>setTimeout(r,850));
+  if(pass>=5 && recentVisible && !relevantVisible){
+    await new Promise(r=>setTimeout(r,1200));
+  }
 }
+const finalBoxes=[...document.querySelectorAll("div,section,ul,main")].filter(e=>{
+  const t=clean(e.innerText||"");
+  return t.length>30&&t.length<20000&&e.scrollHeight>e.clientHeight+80&&
+         (/Follow/i.test(t)||/comments?/i.test(t));
+});
+for(const box of finalBoxes.slice(0,16)){
+  box.scrollTop=Math.max(0,box.scrollHeight-box.clientHeight);
+}
+await new Promise(r=>setTimeout(r,1500));
 
 // A comment card in the current LinkedIn DOM has a profile link and a nearby
 // container with 1-3 profile links, a Follow action, a timestamp and the
@@ -445,7 +481,7 @@ def extract(req:ExtractRequest):
         cur=c.eval("location.href")
         if "/login" in cur or "/authwall" in cur:raise RuntimeError("当前 Chrome 没有处于正常 LinkedIn 登录状态。")
         a=author(c);me=current_profile(c)
-        rx,note=reactions(c,me,req.limit_reactions)
+        rx,note=reactions(c,me,a,req.limit_reactions)
         nav(c,req.url);cm=comments(c,me,req.limit_comments)
         return {"url":c.eval("location.href"),"post_author":a,"total_reactions":len(rx),"total_comments":len(cm),"reactions":rx,"comments":cm,"note":note}
     except Exception as e:raise HTTPException(502,detail=f"提取失败：{type(e).__name__}: {e}")
