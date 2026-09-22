@@ -87,26 +87,50 @@ def author(c):
     return c.eval("""(()=>{for(const s of [".update-components-actor a[href*='/in/']",".feed-shared-actor__container a[href*='/in/']","a[href*='/in/'][data-test-id*='author']","a[href*='/in/'][data-view-name*='author']"]){const a=document.querySelector(s);if(a)return a.href}return ""})()""") or ""
 
 def reactions(c,auth,limit):
-    r=c.eval(r"""async(limit)=>{
-const clean=s=>(s||"").replace(/\\s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-if(!b)return {items:[],note:"未找到 reactions/likes 按钮"};
-b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1200));
-let out=[],seen=new Set();
-for(let z=0;z<40&&out.length<limit;z++){
- const ds=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")],root=ds[ds.length-1];if(!root)break;
- for(const a of root.querySelectorAll("a[href*='/in/']")){const q=p(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>=limit)break}}
- const sc=[...root.querySelectorAll("*")].find(x=>x.scrollHeight>x.clientHeight+100)||root;sc.scrollTop=sc.scrollHeight;
- await new Promise(r=>setTimeout(r,500));
-}
-return {items:out,note:""};
-} )""",timeout=45)
-    ex=auth.rstrip("/");out=[];seen=set()
-    for x in (r or {}).get("items",[]):
+    expr="""(async()=>{
+        const clean=s=>(s||"").replace(/\\s+/g," ").trim();
+        const make=a=>{
+            const m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);
+            if(!m)return null;
+            let name=clean(a.innerText);
+            if(!name){
+                let n=a;
+                for(let i=0;i<6&&n;i++,n=n.parentElement){
+                    const t=clean(n.innerText);
+                    if(t&&t.length<180){name=t.split("\\n")[0].trim();if(name)break;}
+                }
+            }
+            return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")};
+        };
+        const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+        if(!b)return {items:[],note:"未找到 reactions/likes 按钮"};
+        b.scrollIntoView({block:"center"});b.click();
+        await new Promise(r=>setTimeout(r,1200));
+        const out=[],seen=new Set();
+        for(let z=0;z<50&&out.length<limit;z++){
+            const ds=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")];
+            const root=ds[ds.length-1];
+            if(!root)break;
+            for(const a of root.querySelectorAll("a[href*='/in/']")){
+                const q=make(a);
+                if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>=limit)break;}
+            }
+            const scrollables=[...root.querySelectorAll("*")].filter(x=>x.scrollHeight>x.clientHeight+100);
+            const sc=scrollables.sort((x,y)=>y.scrollHeight-x.scrollHeight)[0]||root;
+            sc.scrollTop=sc.scrollHeight;
+            await new Promise(r=>setTimeout(r,600));
+        }
+        return {items:out,note:""};
+    })()"""
+    r=c.eval(expr,timeout=60) or {}
+    ex=auth.rstrip("/")
+    out=[];seen=set()
+    for x in r.get("items",[]):
         p=profile(x)
-        if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:seen.add(p["profile_url"]);out.append(p)
-    return out[:limit],(r or {}).get("note","")
+        if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
+            seen.add(p["profile_url"]);out.append(p)
+    return out[:limit],r.get("note","")
+
 def comments(c,auth,limit):
     r=c.eval(r"""async(limit)=>{
 const clean=s=>(s||"").replace(/s+/g," ").trim();
