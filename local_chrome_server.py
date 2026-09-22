@@ -270,19 +270,27 @@ def api_debug_comments(req:ExtractRequest):
         c=CDP(target());nav(c,req.url)
         js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const all=[...document.querySelectorAll("button,a,[role='button']")];
+const all=[...document.querySelectorAll("button,a,[role='button'],li")];
 const cb=all.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1400));}
-const sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant$/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))));
-if(sort){sort.click();await new Promise(r=>setTimeout(r,500));}
+let sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant$/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))));
+if(sort){sort.click();await new Promise(r=>setTimeout(r,700));}
 const recent=[...document.querySelectorAll("button,a,[role='button'],li")].find(e=>/^most recent$/i.test(clean(e.innerText)));
-if(recent){recent.click();await new Promise(r=>setTimeout(r,1600));}
-const sels=[".comments-comment-item",".comments-comment-entity","article[data-view-name*='comment']","div[data-view-name*='comment']","[data-test-id*='comment']"];
-const nodes=[];
-for(const s of sels) for(const n of document.querySelectorAll(s)) nodes.push({selector:s,tag:n.tagName,cls:(typeof n.className==="string"?n.className:"").slice(0,400),text:clean(n.innerText).slice(0,2000),links:[...n.querySelectorAll("a[href*='/in/']")].map(a=>({text:clean(a.innerText),href:a.href})).slice(0,10)});
-return {url:location.href,body:clean(document.body?.innerText||"").slice(0,7000),nodes:nodes.slice(0,30),profiles:[...document.querySelectorAll("a[href*='/in/']")].slice(0,40).map(a=>({text:clean(a.innerText),href:a.href}))};
+if(recent){recent.click();await new Promise(r=>setTimeout(r,1800));}
+const anchors=[...document.querySelectorAll("a[href*='/in/']")];
+const commentAnchors=anchors.filter(a=>/dhulquarnayne|comment/i.test(clean(a.innerText)+" "+a.href));
+const inspectAnchor=a=>{
+ let arr=[],n=a;
+ for(let k=0;k<16&&n;k++,n=n.parentElement){
+   const txt=clean(n.innerText||"");
+   arr.push({level:k,tag:n.tagName,cls:(typeof n.className==="string"?n.className:"").slice(0,500),testid:n.getAttribute?.("data-test-id"),view:n.getAttribute?.("data-view-name"),role:n.getAttribute?.("role"),links:n.querySelectorAll?.("a[href*='/in/']").length||0,text:txt.slice(0,2500)});
+ }
+ return {href:a.href,text:clean(a.innerText),ancestors:arr};
+};
+const texts=[...document.querySelectorAll("div,p,span")].filter(e=>/Can I get a sample/i.test(clean(e.innerText||""))).slice(0,5).map(e=>({tag:e.tagName,cls:(typeof e.className==="string"?e.className:"").slice(0,500),text:clean(e.innerText).slice(0,2000),parent:e.parentElement?{tag:e.parentElement.tagName,cls:(typeof e.parentElement.className==="string"?e.parentElement.className:"").slice(0,500),text:clean(e.parentElement.innerText).slice(0,2500)}:null}));
+return {url:location.href,body:clean(document.body?.innerText||"").slice(0,9000),commentAnchors:commentAnchors.slice(0,10).map(inspectAnchor),commentTextNodes:texts,allProfiles:anchors.slice(0,30).map(a=>({text:clean(a.innerText),href:a.href}))};
 })()""";
-        return c.eval(js,55)
+        return c.eval(js,60)
     except Exception as e:
         raise HTTPException(502,detail=f"调试评论失败：{type(e).__name__}: {e}")
     finally:
