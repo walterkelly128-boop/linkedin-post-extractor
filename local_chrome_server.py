@@ -143,9 +143,9 @@ return {items:out,note:root?"":"未定位到包含 All N N 的 reactions 用户�
 
 def comments(c,auth,limit):
     js=r"""(async function(){
-const clean=s=>(s||"").replace(/\\s+/g," ").trim();
+const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const profileFrom=a=>{
-  const m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);
+  const m=(a.href||"").match(/https?://(?:www\.)?linkedin\.com/in/([^/?#]+)/i);
   if(!m)return null;
   let name=clean(a.innerText||"");
   if(!name){
@@ -156,8 +156,8 @@ const profileFrom=a=>{
       if(v){name=v;break}
     }
   }
-  name=name.replace(/\\s*[•·]\\s*(?:2nd|3rd|1st)\\+?.*$/i,"").trim();
-  return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")};
+  name=name.replace(/\s*[•·]\s*(?:2nd|3rd|1st)\+?.*$/i,"").trim();
+  return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(//$/,"")};
 };
 const clickVisibleText=async(text)=>{
   const nodes=[...document.querySelectorAll("button,a,[role='button'],li")].filter(e=>{
@@ -170,7 +170,7 @@ const clickVisibleText=async(text)=>{
   return false;
 };
 const els=[...document.querySelectorAll("button,a,[role='button']")];
-const cb=els.find(e=>/\\b\\d+[\\s,]*comments?\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+const cb=els.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1800));}
 let sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant$/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))||""));
 if(sort){sort.scrollIntoView({block:"center"});sort.click();await new Promise(r=>setTimeout(r,500));}
@@ -202,8 +202,8 @@ for(const a of document.querySelectorAll("a[href*='/in/']")){
     const txt=clean(n.innerText||"");
     const links=n.querySelectorAll?.("a[href*='/in/']").length||0;
     if(links>=1&&links<=3&&txt.length>=45&&txt.length<1800&&
-       /\\bFollow\\b/i.test(txt)&&
-       /(?:\\b\\d+[smhdwmy]\\b|\\b\\d+\\s*(?:day|days|week|weeks|month|months|hour|hours)\\b)/i.test(txt)){
+       /\bFollow\b/i.test(txt)&&
+       /(?:\b\d+[smhdwmy]\b|\b\d+\s*(?:day|days|week|weeks|month|months|hour|hours)\b)/i.test(txt)){
       const lines=(n.innerText||"").split("\\n").map(clean).filter(Boolean);
       const qi=lines.findIndex(x=>x.toLowerCase()===q.name.toLowerCase());
       if(qi>=0){box=n;break}
@@ -225,16 +225,16 @@ for(const {q,box} of cards){
   // Prefer the text after the Follow/timestamp metadata and before reaction counts.
   for(let i=0;i<lines.length;i++){
     const s=lines[i];
-    if(!s||/^follow$/i.test(s)||/^(like|reply|more|dismiss)$/i.test(s)||/^\\d+$/.test(s)||
-       /^\\d+\\s*(?:likes?|replies?|comments?)$/i.test(s))continue;
-    if(/^\\d+[smhdwmy]$/i.test(s)||/^\\d+\\s*(?:day|days|week|weeks|month|months|hour|hours)$/i.test(s))continue;
-    if(/^(?:2nd|3rd|1st)\\+$/i.test(s))continue;
-    if(/^[A-Za-z.]+\\s+(?:2nd|3rd|1st)\\+$/i.test(s))continue;
+    if(!s||/^follow$/i.test(s)||/^(like|reply|more|dismiss)$/i.test(s)||/^\d+$/.test(s)||
+       /^\d+\s*(?:likes?|replies?|comments?)$/i.test(s))continue;
+    if(/^\d+[smhdwmy]$/i.test(s)||/^\d+\s*(?:day|days|week|weeks|month|months|hour|hours)$/i.test(s))continue;
+    if(/^(?:2nd|3rd|1st)\+$/i.test(s))continue;
+    if(/^[A-Za-z.]+\s+(?:2nd|3rd|1st)\+$/i.test(s))continue;
     if(i>0 && lines.slice(0,i).some(x=>/^follow$/i.test(x))){text=s;break}
   }
   if(!text){
     const raw=clean(box.innerText||"");
-    const m=raw.match(/(?:\\b\\d+[smhdwmy]\\b|\\b\\d+\\s*(?:day|days|week|weeks|month|months|hour|hours)\\b)\\s+Follow\\s+(.+?)(?=\\s+\\d+(?:\\s+\\d+){0,2}(?:\\s|$))/i);
+    const m=raw.match(/(?:\b\d+[smhdwmy]\b|\b\d+\s*(?:day|days|week|weeks|month|months|hour|hours)\b)\s+Follow\s+(.+?)(?=\s+\d+(?:\s+\d+){0,2}(?:\s|$))/i);
     if(m)text=clean(m[1]);
   }
   if(text && !out.some(x=>x.profile_url===q.profile_url))out.push({...q,text});
