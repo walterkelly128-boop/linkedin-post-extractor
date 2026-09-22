@@ -84,11 +84,13 @@ def profile(x):
     return {"name":(x.get("text") or "").strip() or m.group(1).replace("-"," "),"profile_url":"https://www.linkedin.com/in/"+m.group(1).rstrip("/")}
 
 def author(c):
-    return c.eval("""(()=>{const links=[...document.querySelectorAll("a[href*='/in/']")];for(const a of links){const t=(a.innerText||"").trim();if(t&&/Eileen H\\./i.test(t))return a.href}const a=links.find(x=>/eileen-h-316520348/i.test(x.href||""));return a?a.href:""})()""") or ""
+    return c.eval("""(()=>{const m=[...document.querySelectorAll("button[aria-label^='Open control menu for post by']")][0];if(m){let n=m;for(let i=0;i<8&&n;i++,n=n.parentElement){const a=n.querySelector("a[href*='/in/']");if(a)return a.href}}const links=[...document.querySelectorAll("a[href*='/in/']")];return links.find(a=>{let n=a;for(let i=0;i<5&&n;i++,n=n.parentElement){const t=n.innerText||"";if(/Open control menu for post by|\\bFollow\\b/i.test(t)&&t.length<500)return true}return false})?.href||""})()""") or ""
 
 def reactions(c,auth,limit):
     expr=f"""(async()=>{{
         const limit={int(limit)};
+        const auth={json.dumps(auth or "")};
+        const auth={json.dumps(auth or "")};
         const clean=s=>(s||"").replace(/\\s+/g," ").trim();
         const norm=u=>u.replace(/\\/$/,"");
         const make=a=>{{
@@ -108,7 +110,7 @@ def reactions(c,auth,limit):
         const out=[],seen=new Set();
         for(const a of source.querySelectorAll("a[href*='/in/']")){{
             const q=make(a);
-            if(q&&!seen.has(q.profile_url)&&q.profile_url!==norm(auth||"")){{seen.add(q.profile_url);out.push(q);if(limit>0&&out.length>=limit)break;}}
+            if(q&&!seen.has(q.profile_url)&&q.profile_url!==norm(auth)){{seen.add(q.profile_url);out.push(q);if(limit>0&&out.length>=limit)break;}}
         }}
         if(out.length===0){{
             for(const a of document.querySelectorAll("a[href*='/in/']")){{
