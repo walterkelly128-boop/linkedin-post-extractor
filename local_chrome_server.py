@@ -139,20 +139,44 @@ return {items:out,note:root?"":"未定位到包含 All N N 的 reactions 用户�
 def comments(c,auth,limit):
     js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-if(b){b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,900))}
+const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
+const buttons=[...document.querySelectorAll("button,a,[role='button']")];
+const cb=buttons.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1400));}
+const sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant$/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))));
+if(sort){sort.click();await new Promise(r=>setTimeout(r,500));}
+const recent=[...document.querySelectorAll("button,a,[role='button'],li")].find(e=>/^most recent$/i.test(clean(e.innerText)));
+if(recent){recent.click();await new Promise(r=>setTimeout(r,1600));}
 let out=[],seen=new Set();
-for(let z=0;z<35&&out.length<__LIMIT__;z++){
- for(const a of document.querySelectorAll("a[href*='/in/']")){const q=p(a);if(!q||seen.has(q.profile_url))continue;let n=a,txt="";
-  for(let i=0;i<8&&n;i++,n=n.parentElement){const s=((n.className||"")+" "+(n.getAttribute?.("data-view-name")||"")+" "+(n.getAttribute?.("data-test-id")||"")).toLowerCase();if(s.includes("comment")){txt=clean(n.innerText);break}}
-  if(txt){const lines=txt.split("\n").map(clean).filter(Boolean),i=lines.findIndex(x=>x===q.name);seen.add(q.profile_url);out.push({...q,text:i>=0&&lines[i+1]?lines[i+1]:""});if(out.length>=__LIMIT__)break}
+for(let z=0;z<20&&out.length<__LIMIT__;z++){
+ for(const a of document.querySelectorAll("a[href*='/in/']")){
+   const q=p(a);if(!q||seen.has(q.profile_url))continue;
+   let n=a,box=null;
+   for(let k=0;k<14&&n;k++,n=n.parentElement){
+     const txt=clean(n.innerText||"");
+     const cls=((typeof n.className==="string"?n.className:"")+" "+(n.getAttribute?.("data-view-name")||"")+" "+(n.getAttribute?.("data-test-id")||"")).toLowerCase();
+     if(cls.includes("comment")||/\bcomment\b/i.test(cls)){box=n;break}
+     if(txt.length>20&&txt.length<1800&&/reply|like|follow|comment/i.test(txt)){box=n;}
+   }
+   if(!box)continue;
+   const lines=(box.innerText||"").split("\n").map(clean).filter(Boolean);
+   const qi=lines.findIndex(x=>x===q.name);
+   let text="";
+   if(qi>=0){
+     for(let k=qi+1;k<lines.length;k++){
+       const s=lines[k];
+       if(!s||/^\d+\s*(likes?|replies?|comments?)$/i.test(s)||/^(like|reply|follow|more)$/i.test(s))continue;
+       text=s;break;
+     }
+   }
+   seen.add(q.profile_url);out.push({...q,text});
+   if(out.length>=__LIMIT__)break;
  }
- window.scrollBy(0,1300);await new Promise(r=>setTimeout(r,500));
+ window.scrollBy(0,900);await new Promise(r=>setTimeout(r,400));
 }
 return out;
-})()"""
-    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=45)
+})()""";
+    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=50)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in r or []:
         p=profile(x)
