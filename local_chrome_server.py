@@ -57,7 +57,7 @@ class CDP:
         raise RuntimeError(f"CDP {method} 响应超时。")
     def pagecmd(self,m,p=None,timeout=20):return self.cmd(m,p,self.session,timeout)
     def eval(self,expr,timeout=40):
-        r=self.pagecmd("Runtime.evaluate",{"expression":"(async()=>("+expr+"))()","returnByValue":True,"awaitPromise":True},timeout)
+        r=self.pagecmd("Runtime.evaluate",{"expression":expr,"returnByValue":True,"awaitPromise":True},timeout)
         if r.get("exceptionDetails"):raise RuntimeError(str(r["exceptionDetails"]))
         return r.get("result",{}).get("value")
 
