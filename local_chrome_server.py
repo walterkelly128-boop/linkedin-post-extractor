@@ -1,10 +1,16 @@
 """
-Simple Windows-local LinkedIn extractor.
-Run:
-  pip install -r requirements-local.txt
-  python local_chrome_server.py
-Open http://127.0.0.1:8766
+LinkedIn local-Chrome extractor.
+
+Architecture:
+  Windows Chrome (logged in, CDP :9222)
+        ^
+        | host.docker.internal:9222
+        |
+  Docker: FastAPI + Selenium
+
+No li_at/cookie export is required.
 """
+import os
 import re
 import time
 from fastapi import FastAPI, HTTPException
@@ -16,7 +22,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import WebDriverException, StaleElementReferenceException
 
-app = FastAPI(title="LinkedIn Local Chrome Extractor", version="2.0")
+app = FastAPI(title="LinkedIn Local Chrome Extractor", version="2.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 class ExtractRequest(BaseModel):
@@ -25,6 +31,9 @@ class ExtractRequest(BaseModel):
     limit_comments: int = 50
 
 _DRIVER = None
+
+def get_cdp_address():
+    return os.getenv("CHROME_CDP_ADDRESS", "host.docker.internal:9222")
 
 def get_driver():
     global _DRIVER
@@ -37,12 +46,13 @@ def get_driver():
             except Exception: pass
             _DRIVER = None
     options = Options()
-    options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+    options.add_experimental_option("debuggerAddress", get_cdp_address())
     try:
         _DRIVER = webdriver.Chrome(options=options)
     except Exception as exc:
         raise RuntimeError(
-            "无法连接本机 Chrome。请先使用 --remote-debugging-port=9222 启动专用 Chrome。"
+            f"无法连接 Chrome CDP：{get_cdp_address()}。"
+            "请先启动 Windows 专用 Chrome，并确认 9222 可访问。"
             f" 原始错误：{exc}"
         ) from exc
     return _DRIVER
@@ -175,7 +185,7 @@ def extract_comments(d, author, limit):
                 seen.add(p["profile_url"])
                 results.append({"name":p["name"],"profile_url":p["profile_url"],"text":comment_text})
                 if limit>0 and len(results)>=limit: return results
-            except (StaleElementReferenceException, Exception):
+            except Exception:
                 continue
         d.execute_script("window.scrollBy(0,1400);"); time.sleep(.8)
     return results[:limit] if limit>0 else results
@@ -205,13 +215,17 @@ input,button{font-size:15px;padding:11px;border-radius:8px;border:1px solid #ccd
 input{width:calc(100% - 24px)}button{background:#0a66c2;color:#fff;border:0;cursor:pointer;margin-top:12px}
 pre{background:#101827;color:#d7e3f4;padding:16px;border-radius:10px;overflow:auto}</style>
 <main><h2>LinkedIn 本机 Chrome 提取器</h2>
-<p>直接使用已登录 Chrome，不复制 li_at/Cookie，也不会点击普通「React/赞」按钮。</p>
+<p>Windows Chrome 负责登录 LinkedIn；Docker 负责提取。无需复制 li_at/Cookie。</p>
 <input id="url" placeholder="粘贴 LinkedIn 帖子 URL"><br>
 <button onclick="run()">开始提取</button><pre id="out">等待输入...</pre>
 <script>async function run(){const u=document.getElementById('url').value.trim();if(!u)return alert('请输入帖子 URL');
-const o=document.getElementById('out');o.textContent='正在连接本机 Chrome...';
+const o=document.getElementById('out');o.textContent='正在连接 Windows Chrome...';
 try{const r=await fetch('/api/extract',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u})});
 o.textContent=await r.text()}catch(e){o.textContent=e}}</script></main></html>""")
+
+@app.get("/api/health")
+def health():
+    return {"ok": True, "chrome_cdp": get_cdp_address()}
 
 @app.post("/api/inspect")
 def inspect(req: ExtractRequest):
@@ -242,6 +256,6 @@ def extract(req: ExtractRequest):
 
 if __name__=="__main__":
     import uvicorn
-    print("LinkedIn Local Chrome Extractor: http://127.0.0.1:8766")
-    print("Chrome CDP: 127.0.0.1:9222")
-    uvicorn.run(app,host="127.0.0.1",port=8766)
+    print("LinkedIn Local Chrome Extractor: http://0.0.0.0:8766")
+    print("Chrome CDP:", get_cdp_address())
+    uvicorn.run(app,host="0.0.0.0",port=8766)
