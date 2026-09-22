@@ -78,10 +78,12 @@ def nav(c,url):
     time.sleep(3)
 
 def profile(x):
-    h=x.get("href","")
-    m=re.search(r"https?://(?:www\.)?linkedin\.com/in/([^/?#]+)",h,re.I)
+    if not isinstance(x,dict): return None
+    h=x.get("profile_url") or x.get("href") or ""
+    m=re.search(r"https?://(?:www\\.)?linkedin\\.com/in/([^/?#]+)",h,re.I)
     if not m:return None
-    return {"name":(x.get("text") or "").strip() or m.group(1).replace("-"," "),"profile_url":"https://www.linkedin.com/in/"+m.group(1).rstrip("/")}
+    name=(x.get("name") or x.get("text") or "").strip()
+    return {"name":name or m.group(1).replace("-"," "),"profile_url":"https://www.linkedin.com/in/"+m.group(1).rstrip("/")}
 
 def author(c):
     return c.eval("""(()=>{for(const s of [".update-components-actor a[href*='/in/']",".feed-shared-actor__container a[href*='/in/']","a[href*='/in/'][data-test-id*='author']","a[href*='/in/'][data-view-name*='author']"]){const a=document.querySelector(s);if(a)return a.href}return ""})()""") or ""
