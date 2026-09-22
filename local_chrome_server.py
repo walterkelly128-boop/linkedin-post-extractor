@@ -74,7 +74,7 @@ def nav(c,url):
         try:
             cur=c.eval("location.href",5) or ""
             state=c.eval("document.readyState",5) or ""
-            body=c.eval("document.body?.innerText||''",5) or ""
+            body=c.eval("(document.body ? document.body.innerText : "")||''",5) or ""
             if cur.split("#",1)[0].rstrip("/")==target_url and state=="complete" and len(body)>500:
                 break
         except Exception:
@@ -98,7 +98,7 @@ const path=(location.pathname.match(/^\/posts\/([^/?#]+)/i)||[])[1]||"";
 const slug=path.split("-ugcPost-")[0].replace(/-$/,"");
 if(slug){for(const a of document.querySelectorAll("a[href*='/in/']")){const m=(a.href||"").match(/linkedin\.com\/in\/([^/?#]+)/i);if(m&&m[1].toLowerCase()===slug.toLowerCase())return a.href;}}
 const follow=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^follow\s+/i.test(clean(e.getAttribute("aria-label")||e.innerText||"")));
-if(follow){let n=follow;for(let i=0;i<5&&n;i++,n=n.parentElement){const a=n.querySelector?.("a[href*='/in/']");if(a)return a.href;}}
+if(follow){let n=follow;for(let i=0;i<5&&n;i++,n=n.parentElement){const a=n.querySelector("a[href*='/in/']");if(a)return a.href;}}
 return ""})()""") or ""
 
 def reactions(c,auth,limit):
@@ -115,7 +115,7 @@ for(const a of document.querySelectorAll("a[href*='/in/']")){
   let n=a;
   for(let i=0;i<18&&n;i++,n=n.parentElement){
     const t=clean(n.innerText||"");
-    const count=n.querySelectorAll?.("a[href*='/in/']").length||0;
+    const count=n.querySelectorAll("a[href*='/in/']").length||0;
     if(/\bAll\s+\d+\s+\d+\b/i.test(t)&&count>=2){root=n;seed=a;break}
   }
   if(root)break;
@@ -151,7 +151,7 @@ const profileFrom=a=>{
   if(!name){
     let n=a;
     for(let i=0;i<6&&n;i++,n=n.parentElement){
-      const vals=[...(n.querySelectorAll?.("a[href*='/in/']")||[])].map(x=>clean(x.innerText||"")).filter(Boolean);
+      const vals=[...(n.querySelectorAll("a[href*='/in/']")||[])].map(x=>clean(x.innerText||"")).filter(Boolean);
       const v=vals.find(x=>!/^Joe Hua$/i.test(x));
       if(v){name=v;break}
     }
@@ -162,7 +162,7 @@ const profileFrom=a=>{
 const clickVisibleText=async(text)=>{
   const nodes=[...document.querySelectorAll("button,a,[role='button'],li")].filter(e=>{
     const s=clean(e.innerText||e.getAttribute("aria-label")||"");
-    const r=e.getBoundingClientRect?.();
+    const r=e.getBoundingClientRect();
     return new RegExp("^"+text+"$","i").test(s)&&(!r||r.width>0&&r.height>0);
   });
   const e=nodes[nodes.length-1];
@@ -200,7 +200,7 @@ for(const a of document.querySelectorAll("a[href*='/in/']")){
   let n=a,box=null;
   for(let k=0;k<=8&&n;k++,n=n.parentElement){
     const txt=clean(n.innerText||"");
-    const links=n.querySelectorAll?.("a[href*='/in/']").length||0;
+    const links=n.querySelectorAll("a[href*='/in/']").length||0;
     if(links>=1&&links<=3&&txt.length>=45&&txt.length<1800&&
        /\bFollow\b/i.test(txt)&&
        /(?:\b\d+[smhdwmy]\b|\b\d+\s*(?:day|days|week|weeks|month|months|hour|hours)\b)/i.test(txt)){
@@ -255,7 +255,7 @@ def inspect(c):
         url:location.href,
         title:document.title,
         ready:document.readyState,
-        body:(document.body?.innerText||"").slice(0,5000),
+        body:((document.body ? document.body.innerText : "")||"").slice(0,5000),
         buttons:[...document.querySelectorAll("button,a,[role='button']")].slice(0,300).map(e=>({
             text:(e.innerText||"").trim(),
             aria:e.getAttribute("aria-label"),
@@ -303,7 +303,7 @@ if(btn){btn.scrollIntoView({block:"center"});btn.click();await new Promise(r=>se
 const links=[...document.querySelectorAll("a[href*='/in/']")].map(a=>{
  let n=a,anc=[];
  for(let i=0;i<6&&n;i++,n=n.parentElement){
-   anc.push({tag:n.tagName||"",cls:(typeof n.className==="string"?n.className:"").slice(0,250),testid:n.getAttribute?.("data-test-id"),view:n.getAttribute?.("data-view-name"),text:clean(n.innerText).slice(0,500)});
+   anc.push({tag:n.tagName||"",cls:(typeof n.className==="string"?n.className:"").slice(0,250),testid:n.getAttribute("data-test-id"),view:n.getAttribute("data-view-name"),text:clean(n.innerText).slice(0,500)});
  }
  return {text:clean(a.innerText),href:a.href,ancestors:anc};
 });
@@ -343,12 +343,12 @@ const inspectAnchor=a=>{
  let arr=[],n=a;
  for(let k=0;k<16&&n;k++,n=n.parentElement){
    const txt=clean(n.innerText||"");
-   arr.push({level:k,tag:n.tagName,cls:(typeof n.className==="string"?n.className:"").slice(0,500),testid:n.getAttribute?.("data-test-id"),view:n.getAttribute?.("data-view-name"),role:n.getAttribute?.("role"),links:n.querySelectorAll?.("a[href*='/in/']").length||0,text:txt.slice(0,2500)});
+   arr.push({level:k,tag:n.tagName,cls:(typeof n.className==="string"?n.className:"").slice(0,500),testid:n.getAttribute("data-test-id"),view:n.getAttribute("data-view-name"),role:n.getAttribute("role"),links:n.querySelectorAll("a[href*='/in/']").length||0,text:txt.slice(0,2500)});
  }
  return {href:a.href,text:clean(a.innerText),ancestors:arr};
 };
 const texts=[...document.querySelectorAll("div,p,span")].filter(e=>/Can I get a sample/i.test(clean(e.innerText||""))).slice(0,5).map(e=>({tag:e.tagName,cls:(typeof e.className==="string"?e.className:"").slice(0,500),text:clean(e.innerText).slice(0,2000),parent:e.parentElement?{tag:e.parentElement.tagName,cls:(typeof e.parentElement.className==="string"?e.parentElement.className:"").slice(0,500),text:clean(e.parentElement.innerText).slice(0,2500)}:null}));
-return {url:location.href,body:clean(document.body?.innerText||"").slice(0,9000),commentAnchors:commentAnchors.slice(0,10).map(inspectAnchor),commentTextNodes:texts,allProfiles:anchors.slice(0,30).map(a=>({text:clean(a.innerText),href:a.href}))};
+return {url:location.href,body:clean((document.body ? document.body.innerText : "")||"").slice(0,9000),commentAnchors:commentAnchors.slice(0,10).map(inspectAnchor),commentTextNodes:texts,allProfiles:anchors.slice(0,30).map(a=>({text:clean(a.innerText),href:a.href}))};
 })()""";
         return c.eval(js,60)
     except Exception as e:
