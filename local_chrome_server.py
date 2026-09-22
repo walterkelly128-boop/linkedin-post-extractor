@@ -99,28 +99,33 @@ def reactions(c,auth,limit):
     js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-const btn=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean(e.innerText+" "+(e.getAttribute("aria-label")||""))));
-if(btn){btn.scrollIntoView({block:"center"});btn.click();await new Promise(r=>setTimeout(r,1500));}
-let roots=[...document.querySelectorAll("[role='dialog'],.artdeco-modal,[data-test-modal]")];
-let root=roots[roots.length-1]||null;
-if(!root){
- const candidates=[...document.querySelectorAll("section,div")].filter(x=>/\breactions?\b/i.test(clean(x.innerText||""))&&x.scrollHeight>x.clientHeight+100);
- root=candidates.sort((a,b)=>b.innerText.length-a.innerText.length)[0]||document;
-}
-if(root!==document && !root.querySelector("a[href*='/in/']")) root=document;
+const all=[...document.querySelectorAll("button,a,[role='button']")];
+const btn=all.find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+if(!btn)return {items:[],note:"未找到 reactions/likes 按钮"};
+btn.scrollIntoView({block:"center"});btn.click();
+await new Promise(r=>setTimeout(r,2500));
 let out=[],seen=new Set();
-for(let z=0;z<45&&out.length<__LIMIT__;z++){
- for(const a of root.querySelectorAll("a[href*='/in/']")){
-  const q=p(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>=__LIMIT__)break;}
- }
- const sc=[...root.querySelectorAll("*")].find(x=>x.scrollHeight>x.clientHeight+100);
- if(!sc)break;
- sc.scrollTop=sc.scrollHeight;
- await new Promise(r=>setTimeout(r,500));
+for(let z=0;z<30&&out.length<__LIMIT__;z++){
+  const links=[...document.querySelectorAll("a[href*='/in/']")];
+  for(const a of links){
+    const q=p(a);if(!q||seen.has(q.profile_url))continue;
+    let n=a,ok=false;
+    for(let i=0;i<7&&n;i++,n=n.parentElement){
+      const s=clean((n.innerText||"")+" "+(n.getAttribute?.("aria-label")||""));
+      if(/\breactions?\b/i.test(s)||/\bpeople who reacted\b/i.test(s)){ok=true;break;}
+    }
+    if(ok){seen.add(q.profile_url);out.push(q);if(out.length>=__LIMIT__)break;}
+  }
+  const modal=[...document.querySelectorAll("[role='dialog'],.artdeco-modal,section")].filter(x=>/\breactions?\b/i.test(clean(x.innerText||"")));
+  const root=modal.sort((x,y)=>(y.innerText||"").length-(x.innerText||"").length)[0];
+  const sc=root&&[...root.querySelectorAll("*")].find(x=>x.scrollHeight>x.clientHeight+100);
+  if(!sc)break;
+  sc.scrollTop+=Math.max(700,sc.clientHeight);
+  await new Promise(r=>setTimeout(r,700));
 }
-return {items:out,note:btn?"":"未找到 reactions/likes 按钮"};
-})()"""
-    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=45)
+return {items:out,note:""};
+})()""";
+    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=55)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in (r or {}).get("items",[]):
         p=profile(x)
