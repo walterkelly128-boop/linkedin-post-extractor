@@ -90,7 +90,7 @@ def reactions(c,auth,limit):
     r=c.eval(r"""async(limit)=>{
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(!b)return {items:[],note:"未找到 reactions/likes 按钮"};
 b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1200));
 let out=[],seen=new Set();
@@ -101,7 +101,7 @@ for(let z=0;z<40&&out.length<limit;z++){
  await new Promise(r=>setTimeout(r,500));
 }
 return {items:out,note:""};
-} )""",timeout=45)
+})(limit)""",timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in (r or {}).get("items",[]):
         p=profile(x)
