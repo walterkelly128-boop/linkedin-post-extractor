@@ -182,7 +182,18 @@ const profileFrom=a=>{
       if(v){name=v;break}
     }
   }
-  name=name.replace(/\s*[•·]\s*(?:2nd|3rd|1st)\+?.*$/i,"").trim();
+  // LinkedIn may expose the same person's name twice in the profile anchor,
+  // e.g. "Dhulquarnayne Babs 3rd+ Dhulquarnayne Babs • 3rd+ ...".
+  // Keep only the actual display name and remove connection metadata.
+  name=name.split(/\s*[•·]\s*/)[0].trim();
+  name=name.replace(/\s+(?:1st|2nd|3rd)\+?\s+/ig," ").trim();
+  const words=name.split(/\s+/);
+  if(words.length>=2 && words.length%2===0){
+    const half=words.length/2;
+    if(words.slice(0,half).join(" ").toLowerCase()===words.slice(half).join(" ").toLowerCase()){
+      name=words.slice(0,half).join(" ");
+    }
+  }
   return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")};
 };
 const clickVisibleText=async(text)=>{
@@ -198,9 +209,29 @@ const clickVisibleText=async(text)=>{
 const els=[...document.querySelectorAll("button,a,[role='button']")];
 const cb=els.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1800));}
-let sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant$/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))||""));
-if(sort){sort.scrollIntoView({block:"center"});sort.click();await new Promise(r=>setTimeout(r,500));}
-await clickVisibleText("Most recent");
+// Open the comment sort menu, then explicitly click the visible "Most recent"
+ // menu item. LinkedIn's current DOM often renders the menu item as a
+ // div/span rather than a button, so only looking at button/a misses it.
+ const sortNodes=[...document.querySelectorAll("button,a,[role='button'],[role='menuitem'],li")];
+ const sort=sortNodes.find(e=>/^most relevant$/i.test(clean(e.innerText||e.getAttribute("aria-label")||"")));
+ if(sort){
+   sort.scrollIntoView({block:"center"});
+   sort.click();
+   await new Promise(r=>setTimeout(r,700));
+ }
+ const recentCandidates=[...document.querySelectorAll("button,a,[role='button'],[role='menuitem'],li,div,span")]
+   .filter(e=>{
+     const r=e.getBoundingClientRect();
+     return /^most recent$/i.test(clean(e.innerText||e.getAttribute("aria-label")||"")) &&
+            r.width>0 && r.height>0;
+   });
+ const recent=recentCandidates[recentCandidates.length-1];
+ if(recent){
+   recent.scrollIntoView({block:"center"});
+   const clickTarget=recent.closest("button,a,[role='button'],[role='menuitem'],li")||recent;
+   clickTarget.click();
+   await new Promise(r=>setTimeout(r,2600));
+ }
 
 // LinkedIn virtualizes the comments list. Scroll every likely scroll container so
 // additional comments/replies are rendered instead of relying on window.scrollBy().
@@ -359,10 +390,19 @@ const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const all=[...document.querySelectorAll("button,a,[role='button'],li")];
 const cb=all.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1400));}
-let sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant$/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))));
-if(sort){sort.click();await new Promise(r=>setTimeout(r,700));}
-const recent=[...document.querySelectorAll("button,a,[role='button'],li")].find(e=>/^most recent$/i.test(clean(e.innerText)));
-if(recent){recent.click();await new Promise(r=>setTimeout(r,1800));}
+let sort=[...document.querySelectorAll("button,a,[role='button'],[role='menuitem'],li")].find(e=>/^most relevant$/i.test(clean(e.innerText||e.getAttribute("aria-label")||"")));
+if(sort){sort.scrollIntoView({block:"center"});sort.click();await new Promise(r=>setTimeout(r,700));}
+const recentCandidates=[...document.querySelectorAll("button,a,[role='button'],[role='menuitem'],li,div,span")].filter(e=>{
+  const r=e.getBoundingClientRect();
+  return /^most recent$/i.test(clean(e.innerText||e.getAttribute("aria-label")||""))&&r.width>0&&r.height>0;
+});
+const recent=recentCandidates[recentCandidates.length-1];
+if(recent){
+  recent.scrollIntoView({block:"center"});
+  const clickTarget=recent.closest("button,a,[role='button'],[role='menuitem'],li")||recent;
+  clickTarget.click();
+  await new Promise(r=>setTimeout(r,2600));
+}
 
 // Expand visible "replies"/"reply" controls so replies are included in the
 // comment list. This is intentionally limited to reply controls, never Like.
