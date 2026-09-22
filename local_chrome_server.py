@@ -15,6 +15,10 @@ import re
 import time
 import urllib.request
 import json
+import socket
+import socketserver
+import threading
+import select
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -37,6 +41,60 @@ _DRIVER = None
 def get_cdp_address():
     return os.getenv("CHROME_CDP_ADDRESS", "host.docker.internal:9222")
 
+def get_cdp_proxy_address():
+    return os.getenv("CHROME_CDP_PROXY_ADDRESS", "127.0.0.1:9223")
+
+class CDPProxyHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        upstream_host, upstream_port = get_cdp_address().rsplit(":", 1)
+        upstream = socket.create_connection((upstream_host, int(upstream_port)), timeout=5)
+        try:
+            self.request.settimeout(10)
+            upstream.settimeout(10)
+            data = b""
+            while b"\r\n\r\n" not in data and len(data) < 65536:
+                chunk = self.request.recv(4096)
+                if not chunk:
+                    return
+                data += chunk
+            if b"\r\n\r\n" not in data:
+                return
+            head, rest = data.split(b"\r\n\r\n", 1)
+            lines = head.split(b"\r\n")
+            out = []
+            has_upgrade = False
+            for line in lines:
+                if line.lower().startswith(b"host:"):
+                    out.append(b"Host: localhost:9222")
+                else:
+                    out.append(line)
+                if line.lower().startswith(b"upgrade:") and b"websocket" in line.lower():
+                    has_upgrade = True
+            if not has_upgrade:
+                out = [x for x in out if not x.lower().startswith(b"connection:")]
+                out.append(b"Connection: close")
+            upstream.sendall(b"\r\n".join(out) + b"\r\n\r\n" + rest)
+
+            sockets = [self.request, upstream]
+            while True:
+                readable, _, _ = select.select(sockets, [], [], 30)
+                if not readable:
+                    break
+                for src in readable:
+                    dst = upstream if src is self.request else self.request
+                    buf = src.recv(65536)
+                    if not buf:
+                        return
+                    dst.sendall(buf)
+        finally:
+            try:
+                upstream.close()
+            except Exception:
+                pass
+
+class CDPProxyServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+
 def cdp_request(path):
     address = get_cdp_address()
     req = urllib.request.Request(
@@ -56,6 +114,15 @@ def check_cdp():
             f"已使用 Host: localhost:9222；{exc}"
         ) from exc
 
+def start_cdp_proxy():
+    address = get_cdp_proxy_address()
+    host, port = address.rsplit(":", 1)
+    server = CDPProxyServer((host, int(port)), CDPProxyHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+_CDP_PROXY = start_cdp_proxy()
+
 def get_driver():
     global _DRIVER
     if _DRIVER is not None:
@@ -69,7 +136,7 @@ def get_driver():
                 pass
             _DRIVER = None
 
-    cdp = get_cdp_address()
+    cdp = get_cdp_proxy_address()
     info = check_cdp()
     browser = info.get("Browser", "")
     ws = info.get("webSocketDebuggerUrl", "")
@@ -87,7 +154,7 @@ def get_driver():
         _DRIVER = None
         raise RuntimeError(
             f"Selenium 无法 attach Windows Chrome。"
-            f"CDP={cdp}；Browser={browser}；WebSocket={'yes' if ws else 'no'}；"
+            f"CDP代理={cdp}；Browser={browser}；WebSocket={'yes' if ws else 'no'}；"
             f"请确认专用 Chrome 使用 --remote-debugging-address=0.0.0.0。"
             f"原始错误：{exc}"
         ) from exc
