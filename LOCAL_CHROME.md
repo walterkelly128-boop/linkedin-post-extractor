@@ -1,13 +1,66 @@
-本机 Chrome 简化提取模式
+# Windows Chrome + Docker 模式
 
-运行方式：
-1. 使用已登录 LinkedIn 的专用 Chrome，并开启 9222 调试端口。
-2. pip install -r requirements-local.txt
-3. python local_chrome_server.py
-4. 浏览器打开 http://127.0.0.1:8766
+## 架构
 
-这个模式不复制 li_at，不导出 Cookie，不点击普通 React/赞按钮，也会排除帖子作者。
+- Windows 专用 Chrome：保存 LinkedIn 登录状态，开放 CDP 9222
+- Docker：运行 FastAPI + Selenium
+- Docker 通过 `host.docker.internal:9222` 连接 Windows Chrome
+- 不复制 `li_at`
+- 不导出 Cookie
+- 不需要 chrome-bridge.exe
+- 不需要 Docker 内运行 Chrome
 
-如果提取结果为 0，可 POST 帖子 URL 到 /api/inspect，查看当前 LinkedIn DOM 中实际存在的按钮和个人主页链接，再针对当前页面结构调整选择器。
+## 第一次运行
 
-以后更新代码只需 git pull，然后重新运行 python local_chrome_server.py，不需要重新生成 EXE。
+PowerShell：
+
+```powershell
+.start_local_chrome.ps1
+```
+
+第一次打开的专用 Chrome 中登录 LinkedIn。
+
+然后：
+
+```powershell
+docker compose up -d --build
+```
+
+浏览器打开：
+
+```
+http://127.0.0.1:8766
+```
+
+## 更新代码
+
+```powershell
+git pull
+docker compose up -d --build
+```
+
+## 查看日志
+
+```powershell
+docker compose logs -f
+```
+
+## 测试 Docker API
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8766/api/health"
+```
+
+正常应返回：
+
+```json
+{"ok":true,"chrome_cdp":"host.docker.internal:9222"}
+```
+
+如果提取仍然是 0 人，不要再安装 Python 依赖，先使用：
+
+```
+POST /api/inspect
+```
+
+检查 LinkedIn 当前 DOM，再针对真实页面结构修改提取器。
