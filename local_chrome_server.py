@@ -104,26 +104,28 @@ const btn=all.find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerT
 if(!btn)return {items:[],note:"未找到 reactions/likes 按钮"};
 btn.scrollIntoView({block:"center"});btn.click();
 await new Promise(r=>setTimeout(r,2500));
-let out=[],seen=new Set();
-for(let z=0;z<30&&out.length<__LIMIT__;z++){
-  const links=[...document.querySelectorAll("a[href*='/in/']")];
-  for(const a of links){
-    const q=p(a);if(!q||seen.has(q.profile_url))continue;
-    let n=a,ok=false;
-    for(let i=0;i<7&&n;i++,n=n.parentElement){
-      const s=clean((n.innerText||"")+" "+(n.getAttribute?.("aria-label")||""));
-      if(/\breactions?\b/i.test(s)||/\bpeople who reacted\b/i.test(s)){ok=true;break;}
-    }
-    if(ok){seen.add(q.profile_url);out.push(q);if(out.length>=__LIMIT__)break;}
+let root=null,seed=null;
+for(const a of document.querySelectorAll("a[href*='/in/']")){
+  let n=a;
+  for(let i=0;i<18&&n;i++,n=n.parentElement){
+    const t=clean(n.innerText||"");
+    const count=n.querySelectorAll?.("a[href*='/in/']").length||0;
+    if(/\bAll\s+\d+\s+\d+\b/i.test(t)&&count>=2){root=n;seed=a;break}
   }
-  const modal=[...document.querySelectorAll("[role='dialog'],.artdeco-modal,section")].filter(x=>/\breactions?\b/i.test(clean(x.innerText||"")));
-  const root=modal.sort((x,y)=>(y.innerText||"").length-(x.innerText||"").length)[0];
-  const sc=root&&[...root.querySelectorAll("*")].find(x=>x.scrollHeight>x.clientHeight+100);
-  if(!sc)break;
-  sc.scrollTop+=Math.max(700,sc.clientHeight);
-  await new Promise(r=>setTimeout(r,700));
+  if(root)break;
 }
-return {items:out,note:""};
+if(!root){
+  const candidates=[...document.querySelectorAll("div,section")].filter(x=>/\bAll\s+\d+\s+\d+\b/i.test(clean(x.innerText||""))&&x.querySelectorAll("a[href*='/in/']").length>=2);
+  root=candidates.sort((a,b)=>a.querySelectorAll("a[href*='/in/']").length-b.querySelectorAll("a[href*='/in/']").length)[0]||null;
+}
+let out=[],seen=new Set();
+if(root){
+  for(const a of root.querySelectorAll("a[href*='/in/']")){
+    const q=p(a);if(!q||seen.has(q.profile_url))continue;
+    seen.add(q.profile_url);out.push(q);if(out.length>=__LIMIT__)break;
+  }
+}
+return {items:out,note:root?"":"未定位到包含 All N N 的 reactions 用户容器"};
 })()""";
     r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=55)
     ex=auth.rstrip("/");out=[];seen=set()
