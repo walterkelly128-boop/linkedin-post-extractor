@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-app=FastAPI(title="LinkedIn Local Chrome Extractor",version="3.1")
+app=FastAPI(title="LinkedIn Local Chrome Extractor",version="3.2")
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
 
 class ExtractRequest(BaseModel):
@@ -30,8 +30,7 @@ def target():
 
 class CDP:
     def __init__(self,t):
-        raw=check_cdp()["webSocketDebuggerUrl"]
-        raw=raw.replace("ws://localhost:9222","ws://host.docker.internal:9222")
+        raw=check_cdp()["webSocketDebuggerUrl"].replace("ws://localhost:9222","ws://host.docker.internal:9222")
         self.ws=websocket.create_connection(raw,timeout=15,host="localhost:9222",origin="http://localhost:9222")
         self.ws.settimeout(15);self.i=0
         r=self.cmd("Target.attachToTarget",{"targetId":t["id"],"flatten":True})
@@ -61,13 +60,13 @@ class CDP:
         return r.get("result",{}).get("value")
 
 def nav(c,url):
-    c.pagecmd("Page.enable");c.pagecmd("Runtime.enable")
+    # Page.enable can hang on a cross-OS attached renderer; it is not required for Runtime.evaluate/Page.navigate.
     c.pagecmd("Page.navigate",{"url":url},20)
     time.sleep(3)
 
 def profile(x):
     h=x.get("href","")
-    m=re.search(r"https?://(?:www\\.)?linkedin\\.com/in/([^/?#]+)",h,re.I)
+    m=re.search(r"https?://(?:www\.)?linkedin\.com/in/([^/?#]+)",h,re.I)
     if not m:return None
     return {"name":(x.get("text") or "").strip() or m.group(1).replace("-"," "),"profile_url":"https://www.linkedin.com/in/"+m.group(1).rstrip("/")}
 
@@ -76,9 +75,9 @@ def author(c):
 
 def reactions(c,auth,limit):
     r=c.eval(r"""async(limit)=>{
-const clean=s=>(s||"").replace(/s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?://(?:www.)?linkedin.com/in/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(//$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/d+[s,]*(?:reactions?|likes?)/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+const clean=s=>(s||"").replace(/\s+/g," ").trim();
+const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
+let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(!b)return {items:[],note:"未找到带数字的 reactions/likes 元素。"};
 b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1000));
 let out=[],seen=new Set();
@@ -91,8 +90,7 @@ for(let z=0;z<35&&!(limit>0&&out.length>=limit);z++){
 document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));
 return {items:out.slice(0,limit>0?limit:undefined),note:""};
 }""",timeout=40)
-    ex=auth.rstrip("/")
-    out=[];seen=set()
+    ex=auth.rstrip("/");out=[];seen=set()
     for x in (r or {}).get("items",[]):
         p=profile(x)
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:seen.add(p["profile_url"]);out.append(p)
@@ -100,15 +98,15 @@ return {items:out.slice(0,limit>0?limit:undefined),note:""};
 
 def comments(c,auth,limit):
     r=c.eval(r"""async(limit)=>{
-const clean=s=>(s||"").replace(/s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?://(?:www.)?linkedin.com/in/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(//$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/d*[s,]*comments?/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+const clean=s=>(s||"").replace(/\s+/g," ").trim();
+const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
+let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d*[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(b){b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,800))}
 let out=[],seen=new Set();
 for(let z=0;z<30&&!(limit>0&&out.length>=limit);z++){
  for(let a of document.querySelectorAll("a[href*='/in/']")){let q=p(a);if(!q||seen.has(q.profile_url))continue;let n=a,txt="";
   for(let i=0;i<8&&n;i++,n=n.parentElement){let s=((n.className||"")+" "+(n.getAttribute?.("data-view-name")||"")+" "+(n.getAttribute?.("data-test-id")||"")).toLowerCase();if(s.includes("comment")){txt=clean(n.innerText);break}}
-  if(txt){let lines=txt.split("\n").map(clean).filter(Boolean),i=lines.findIndex(x=>x===q.name);seen.add(q.profile_url);out.push({...q,text:i>=0&&lines[i+1]?lines[i+1]:"");if(limit>0&&out.length>=limit)break}
+  if(txt){let lines=txt.split("\n").map(clean).filter(Boolean),i=lines.findIndex(x=>x===q.name);seen.add(q.profile_url);out.push({...q,text:i>=0&&lines[i+1]?lines[i+1]:""});if(limit>0&&out.length>=limit)break}
  }
  window.scrollBy(0,1300);await new Promise(r=>setTimeout(r,500));
 }
