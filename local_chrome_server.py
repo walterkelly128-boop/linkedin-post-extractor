@@ -13,6 +13,8 @@ No li_at/cookie export is required.
 import os
 import re
 import time
+import urllib.request
+import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -22,7 +24,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import WebDriverException, StaleElementReferenceException
 
-app = FastAPI(title="LinkedIn Local Chrome Extractor", version="2.1")
+app = FastAPI(title="LinkedIn Local Chrome Extractor", version="2.2")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 class ExtractRequest(BaseModel):
@@ -35,6 +37,14 @@ _DRIVER = None
 def get_cdp_address():
     return os.getenv("CHROME_CDP_ADDRESS", "host.docker.internal:9222")
 
+def check_cdp():
+    address = get_cdp_address()
+    try:
+        with urllib.request.urlopen(f"http://{address}/json/version", timeout=3) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Windows Chrome CDP 不可访问：{address}；{exc}") from exc
+
 def get_driver():
     global _DRIVER
     if _DRIVER is not None:
@@ -42,20 +52,34 @@ def get_driver():
             _ = _DRIVER.current_url
             return _DRIVER
         except Exception:
-            try: _DRIVER.quit()
-            except Exception: pass
+            try:
+                _DRIVER.quit()
+            except Exception:
+                pass
             _DRIVER = None
+
+    cdp = get_cdp_address()
+    info = check_cdp()
+    browser = info.get("Browser", "")
+    ws = info.get("webSocketDebuggerUrl", "")
+
     options = Options()
-    options.add_experimental_option("debuggerAddress", get_cdp_address())
+    options.add_experimental_option("debuggerAddress", cdp)
+    options.page_load_strategy = "eager"
+
     try:
         _DRIVER = webdriver.Chrome(options=options)
+        _DRIVER.set_page_load_timeout(20)
+        _DRIVER.set_script_timeout(15)
+        return _DRIVER
     except Exception as exc:
+        _DRIVER = None
         raise RuntimeError(
-            f"无法连接 Chrome CDP：{get_cdp_address()}。"
-            "请先启动 Windows 专用 Chrome，并确认 9222 可访问。"
-            f" 原始错误：{exc}"
+            f"Selenium 无法 attach Windows Chrome。"
+            f"CDP={cdp}；Browser={browser}；WebSocket={'yes' if ws else 'no'}；"
+            f"请确认专用 Chrome 使用 --remote-debugging-address=0.0.0.0。"
+            f"原始错误：{exc}"
         ) from exc
-    return _DRIVER
 
 def clean_profile(url):
     m = re.search(r"https?://(?:www\.)?linkedin\.com/in/([^/?#]+)", url or "", re.I)
@@ -127,7 +151,7 @@ def extract_reactions(d, author, limit):
         return [], "未找到带数字的 reactions/likes 元素；程序没有点击普通 React 按钮。"
     d.execute_script("arguments[0].scrollIntoView({block:'center'});", button)
     d.execute_script("arguments[0].click();", button)
-    time.sleep(1.5)
+    time.sleep(1.0)
     results=[]; seen=set(); stagnant=0; last=0
     for _ in range(30):
         for p in dialog_profiles(d, excluded, limit):
@@ -136,7 +160,7 @@ def extract_reactions(d, author, limit):
         if limit>0 and len(results)>=limit: break
         dialogs=d.find_elements(By.CSS_SELECTOR, "[role='dialog'],.artdeco-modal")
         if not dialogs: break
-        scroll_modal(d, dialogs[-1]); time.sleep(.7)
+        scroll_modal(d, dialogs[-1]); time.sleep(.45)
         if len(results)==last: stagnant+=1
         else: stagnant=0; last=len(results)
         if stagnant>=4: break
@@ -165,9 +189,9 @@ def extract_comments(d, author, limit):
         except Exception:
             try: button.click()
             except Exception: pass
-        time.sleep(1.2)
+        time.sleep(.8)
     results=[]; seen=set()
-    for _ in range(25):
+    for _ in range(20):
         for a in d.find_elements(By.CSS_SELECTOR,"a[href*='/in/']"):
             try:
                 p=profile_from_link(a)
@@ -187,12 +211,12 @@ def extract_comments(d, author, limit):
                 if limit>0 and len(results)>=limit: return results
             except Exception:
                 continue
-        d.execute_script("window.scrollBy(0,1400);"); time.sleep(.8)
+        d.execute_script("window.scrollBy(0,1400);"); time.sleep(.5)
     return results[:limit] if limit>0 else results
 
 def inspect_page(d):
     return d.execute_script("""
-      const clean=s=>(s||'').replace(/\s+/g,' ').trim().slice(0,400);
+      const clean=s=>(s||'').replace(/\\s+/g,' ').trim().slice(0,400);
       return {
         url:location.href,title:document.title,
         buttons:[...document.querySelectorAll('button,a,[role="button"]')].slice(0,250).map(e=>({
@@ -225,27 +249,32 @@ o.textContent=await r.text()}catch(e){o.textContent=e}}</script></main></html>""
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "chrome_cdp": get_cdp_address()}
+    try:
+        info=check_cdp()
+        return {"ok":True,"chrome_cdp":get_cdp_address(),"browser":info.get("Browser",""),"websocket":bool(info.get("webSocketDebuggerUrl"))}
+    except Exception as exc:
+        return {"ok":False,"chrome_cdp":get_cdp_address(),"error":str(exc)}
 
 @app.post("/api/inspect")
 def inspect(req: ExtractRequest):
-    d=get_driver()
     try:
-        d.get(req.url); time.sleep(3); return inspect_page(d)
-    except Exception as exc: raise HTTPException(status_code=502,detail=str(exc)) from exc
+        d=get_driver()
+        d.get(req.url); time.sleep(2); return inspect_page(d)
+    except Exception as exc:
+        raise HTTPException(status_code=502,detail=str(exc)) from exc
 
 @app.post("/api/extract")
 def extract(req: ExtractRequest):
     if not re.match(r"https?://(?:www\.)?linkedin\.com/",req.url,re.I):
         raise HTTPException(status_code=400,detail="请输入 LinkedIn URL。")
-    d=get_driver()
     try:
-        d.get(req.url); time.sleep(3)
+        d=get_driver()
+        d.get(req.url); time.sleep(2)
         if "/login" in d.current_url or "/authwall" in d.current_url:
             raise RuntimeError("当前 Chrome 没有处于正常 LinkedIn 登录状态。")
         author=get_post_author(d)
         reactions,note=extract_reactions(d,author,req.limit_reactions)
-        d.get(req.url); time.sleep(2)
+        d.get(req.url); time.sleep(1)
         comments=extract_comments(d,author,req.limit_comments)
         return {"url":d.current_url,"post_author":author,"total_reactions":len(reactions),
                 "total_comments":len(comments),"reactions":reactions,"comments":comments,"note":note}
