@@ -86,13 +86,20 @@ def profile(x):
     return {"name":name or m.group(1).replace("-"," "),"profile_url":"https://www.linkedin.com/in/"+m.group(1).rstrip("/")}
 
 def author(c):
-    return c.eval("""(()=>{for(const s of [".update-components-actor a[href*='/in/']",".feed-shared-actor__container a[href*='/in/']","a[href*='/in/'][data-test-id*='author']","a[href*='/in/'][data-view-name*='author']"]){const a=document.querySelector(s);if(a)return a.href}return ""})()""") or ""
+    return c.eval(r"""(()=>{const clean=s=>(s||"").replace(/\s+/g," ").trim();
+for(const s of [".update-components-actor a[href*='/in/']",".feed-shared-actor__container a[href*='/in/']","a[href*='/in/'][data-test-id*='author']","a[href*='/in/'][data-view-name*='author']"]){const a=document.querySelector(s);if(a)return a.href}
+const path=(location.pathname.match(/^\/posts\/([^/?#]+)/i)||[])[1]||"";
+const slug=path.split("-ugcPost-")[0].replace(/-$/,"");
+if(slug){for(const a of document.querySelectorAll("a[href*='/in/']")){const m=(a.href||"").match(/linkedin\.com\/in\/([^/?#]+)/i);if(m&&m[1].toLowerCase()===slug.toLowerCase())return a.href;}}
+const follow=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^follow\s+/i.test(clean(e.getAttribute("aria-label")||e.innerText||"")));
+if(follow){let n=follow;for(let i=0;i<5&&n;i++,n=n.parentElement){const a=n.querySelector?.("a[href*='/in/']");if(a)return a.href;}}
+return ""})()""") or ""
 
 def reactions(c,auth,limit):
     js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-const btn=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean(e.innerText+" "+(e.getAttribute("aria-label")||""))));
+const btn=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean(e.innerText+" "+(e.getAttribute("aria-label")||""))));
 if(btn){btn.scrollIntoView({block:"center"});btn.click();await new Promise(r=>setTimeout(r,1500));}
 let roots=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")];
 let root=roots[roots.length-1]||document;
