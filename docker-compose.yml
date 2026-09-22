@@ -1,16 +1,11 @@
 services:
-  extractor:
+  linkedin-extractor:
     build: .
-    image: linkedin-post-extractor:latest
     container_name: linkedin-post-extractor
+    restart: unless-stopped
+    ports:
+      - "8766:8766"
+    environment:
+      CHROME_CDP_ADDRESS: host.docker.internal:9222
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ports:
-      # Web Console UI accessible at http://localhost:8000
-      - "8000:8000"
-    volumes:
-      # Mount outputs to host so exported files and session.json persist locally
-      - ./outputs:/app/outputs
-    env_file:
-      - .env
-    restart: unless-stopped
