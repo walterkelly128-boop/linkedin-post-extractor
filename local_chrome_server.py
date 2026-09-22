@@ -80,10 +80,11 @@ def nav(c,url):
 def profile(x):
     if not isinstance(x,dict): return None
     h=x.get("profile_url") or x.get("href") or ""
-    m=re.search(r"https?://(?:www\\.)?linkedin\\.com/in/([^/?#]+)",h,re.I)
+    m=re.search(r"https?://(?:www\.)?linkedin\.com/in/([^/?#]+)",h,re.I)
     if not m:return None
     name=(x.get("name") or x.get("text") or "").strip()
     return {"name":name or m.group(1).replace("-"," "),"profile_url":"https://www.linkedin.com/in/"+m.group(1).rstrip("/")}
+
 
 def author(c):
     return c.eval(r"""(()=>{const clean=s=>(s||"").replace(/\s+/g," ").trim();
