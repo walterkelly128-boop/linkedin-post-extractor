@@ -57,7 +57,7 @@ class CDP:
         raise RuntimeError(f"CDP {method} 响应超时。")
     def pagecmd(self,m,p=None,timeout=20):return self.cmd(m,p,self.session,timeout)
     def eval(self,expr,timeout=40):
-        r=self.pagecmd("Runtime.evaluate",{"expression":expr,"returnByValue":True,"awaitPromise":True},timeout)
+        r=self.pagecmd("Runtime.evaluate",{"expression":"(async()=>("+expr+"))()","returnByValue":True,"awaitPromise":True},timeout)
         if r.get("exceptionDetails"):raise RuntimeError(str(r["exceptionDetails"]))
         return r.get("result",{}).get("value")
 
@@ -87,28 +87,26 @@ def author(c):
     return c.eval("""(()=>{for(const s of [".update-components-actor a[href*='/in/']",".feed-shared-actor__container a[href*='/in/']","a[href*='/in/'][data-test-id*='author']","a[href*='/in/'][data-view-name*='author']"]){const a=document.querySelector(s);if(a)return a.href}return ""})()""") or ""
 
 def reactions(c,auth,limit):
-    r=c.eval(r"""(async(limit)=>{
-const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/d+[s,]*(?:reactions?|likes?)/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-if(!b)return {items:[],note:"未找到带数字的 reactions/likes 元素。"};
+    r=c.eval(r"""async(limit)=>{
+const clean=s=>(s||"").replace(/\\s+/g," ").trim();
+const p=a=>{let m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")}:null};
+let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+if(!b)return {items:[],note:"未找到 reactions/likes 按钮"};
 b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1200));
 let out=[],seen=new Set();
-for(let z=0;z<40&&!(limit>0&&out.length>=limit);z++){
- let ds=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")],root=ds[ds.length-1];if(!root)break;
- for(let a of root.querySelectorAll("a[href*='/in/']")){let q=p(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(limit>0&&out.length>=limit)break}}
- let ns=[root,...root.querySelectorAll("*")],sc=ns.find(x=>x.scrollHeight>x.clientHeight+100)||root;sc.scrollTop=sc.scrollHeight;
- await new Promise(r=>setTimeout(r,450));
+for(let z=0;z<40&&out.length<limit;z++){
+ const ds=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")],root=ds[ds.length-1];if(!root)break;
+ for(const a of root.querySelectorAll("a[href*='/in/']")){const q=p(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>=limit)break}}
+ const sc=[...root.querySelectorAll("*")].find(x=>x.scrollHeight>x.clientHeight+100)||root;sc.scrollTop=sc.scrollHeight;
+ await new Promise(r=>setTimeout(r,500));
 }
-document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));
-return {items:out.slice(0,limit>0?limit:undefined),note:""};
-})(limit)""",timeout=45)
+return {items:out,note:""};
+} )""",timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in (r or {}).get("items",[]):
         p=profile(x)
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:seen.add(p["profile_url"]);out.append(p)
-    return out[:limit] if limit>0 else out,(r or {}).get("note","")
-
+    return out[:limit],(r or {}).get("note","")
 def comments(c,auth,limit):
     r=c.eval(r"""async(limit)=>{
 const clean=s=>(s||"").replace(/s+/g," ").trim();
