@@ -197,6 +197,40 @@ def api_inspect(req:ExtractRequest):
     finally:
         if c:c.close()
 
+@app.post("/api/debug-reactions")
+def api_debug_reactions(req:ExtractRequest):
+    c=None
+    try:
+        c=CDP(target());nav(c,req.url)
+        js=r"""(async function(){
+const clean=s=>(s||"").replace(/\s+/g," ").trim();
+const els=[...document.querySelectorAll("button,a,[role='button']")];
+const btn=els.find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+const before=btn?{text:clean(btn.innerText),aria:btn.getAttribute("aria-label"),tag:btn.tagName}:null;
+if(btn){btn.scrollIntoView({block:"center"});btn.click();await new Promise(r=>setTimeout(r,2500));}
+const links=[...document.querySelectorAll("a[href*='/in/']")].map(a=>{
+ let n=a,anc=[];
+ for(let i=0;i<6&&n;i++,n=n.parentElement){
+   anc.push({tag:n.tagName||"",cls:(typeof n.className==="string"?n.className:"").slice(0,250),testid:n.getAttribute?.("data-test-id"),view:n.getAttribute?.("data-view-name"),text:clean(n.innerText).slice(0,500)});
+ }
+ return {text:clean(a.innerText),href:a.href,ancestors:anc};
+});
+const containers=[...document.querySelectorAll("[role='dialog'],.artdeco-modal,section,[class*='modal'],[class*='dialog']")]
+ .filter(x=>/reaction|people who reacted|like/i.test(clean(x.innerText)))
+ .slice(0,10).map(x=>({
+   tag:x.tagName,cls:(typeof x.className==="string"?x.className:"").slice(0,500),
+   role:x.getAttribute("role"),text:clean(x.innerText).slice(0,6000),
+   scrollHeight:x.scrollHeight,clientHeight:x.clientHeight,scrollTop:x.scrollTop,
+   children:x.querySelectorAll("a[href*='/in/']").length
+ }));
+return {before,after:{url:location.href,title:document.title},link_count:links.length,links:links.slice(0,80),containers};
+})()""";
+        return c.eval(js,55)
+    except Exception as e:
+        raise HTTPException(502,detail=f"调试失败：{type(e).__name__}: {e}")
+    finally:
+        if c:c.close()
+
 @app.post("/api/extract")
 def extract(req:ExtractRequest):
     if not re.match(r"https?://(?:www\.)?linkedin\.com/",req.url,re.I):raise HTTPException(400,detail="请输入 LinkedIn URL。")
