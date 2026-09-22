@@ -101,6 +101,32 @@ const follow=[...document.querySelectorAll("button,a,[role='button']")].find(e=>
 if(follow){let n=follow;for(let i=0;i<5&&n;i++,n=n.parentElement){const a=n.querySelector("a[href*='/in/']");if(a)return a.href;}}
 return ""})()""") or ""
 
+def current_profile(c):
+    return c.eval(r"""(()=>{
+const norm=s=>(s||"").replace(/\s+/g," ").trim();
+const anchors=[...document.querySelectorAll("a[href*='/in/']")];
+const me=[...document.querySelectorAll("button,a,[role='button']")].find(e=>{
+  const v=norm((e.getAttribute("aria-label")||"")+" "+(e.innerText||""));
+  return /^me(?:$|\s)/i.test(v);
+});
+if(me){
+  let n=me;
+  for(let i=0;i<8&&n;i++,n=n.parentElement){
+    const a=n.querySelector("a[href*='/in/']");
+    if(a)return a.href;
+  }
+}
+const candidates=anchors.filter(a=>{
+  let n=a;
+  for(let i=0;i<5&&n;i++,n=n.parentElement){
+    const t=norm(n.innerText||"");
+    if(/\bMe\b/i.test(t)&&t.length<500)return true;
+  }
+  return false;
+});
+return candidates[0]?.href||"";
+})()""") or ""
+
 def reactions(c,auth,limit):
     js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
@@ -134,7 +160,7 @@ if(root){
 return {items:out,note:root?"":"未定位到包含 All N N 的 reactions 用户容器"};
 })()""";
     r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=55)
-    ex=auth.rstrip("/");out=[];seen=set()
+    ex=auth.rstrip("/") if auth else "";out=[];seen=set()
     for x in (r or {}).get("items",[]):
         p=profile(x)
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
@@ -337,6 +363,20 @@ let sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^mo
 if(sort){sort.click();await new Promise(r=>setTimeout(r,700));}
 const recent=[...document.querySelectorAll("button,a,[role='button'],li")].find(e=>/^most recent$/i.test(clean(e.innerText)));
 if(recent){recent.click();await new Promise(r=>setTimeout(r,1800));}
+
+// Expand visible "replies"/"reply" controls so replies are included in the
+// comment list. This is intentionally limited to reply controls, never Like.
+for(let pass=0;pass<4;pass++){
+  const replies=[...document.querySelectorAll("button,a,[role='button']")].filter(e=>{
+    const t=clean(e.innerText||e.getAttribute("aria-label")||"");
+    return /^(?:\d+\s+)?repl(?:y|ies)$/i.test(t) || /^show\s+\d+\s+repl(?:y|ies)$/i.test(t);
+  });
+  if(!replies.length)break;
+  for(const e of replies.slice(0,12)){
+    try{e.scrollIntoView({block:"center"});e.click();await new Promise(r=>setTimeout(r,500));}catch(_){}
+  }
+  await new Promise(r=>setTimeout(r,800));
+}
 const anchors=[...document.querySelectorAll("a[href*='/in/']")];
 const commentAnchors=anchors.filter(a=>/dhulquarnayne|comment/i.test(clean(a.innerText)+" "+a.href));
 const inspectAnchor=a=>{
@@ -364,8 +404,9 @@ def extract(req:ExtractRequest):
         c=CDP(target());nav(c,req.url)
         cur=c.eval("location.href")
         if "/login" in cur or "/authwall" in cur:raise RuntimeError("当前 Chrome 没有处于正常 LinkedIn 登录状态。")
-        a=author(c);rx,note=reactions(c,a,req.limit_reactions)
-        nav(c,req.url);cm=comments(c,a,req.limit_comments)
+        a=author(c);me=current_profile(c)
+        rx,note=reactions(c,me,req.limit_reactions)
+        nav(c,req.url);cm=comments(c,me,req.limit_comments)
         return {"url":c.eval("location.href"),"post_author":a,"total_reactions":len(rx),"total_comments":len(cm),"reactions":rx,"comments":cm,"note":note}
     except Exception as e:raise HTTPException(502,detail=f"提取失败：{type(e).__name__}: {e}")
     finally:
