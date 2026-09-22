@@ -91,18 +91,22 @@ def author(c):
 def reactions(c,auth,limit):
     js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-const b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-if(!b)return {items:[],note:"未找到 reactions/likes 按钮"};
-b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1200));
+const p=a=>{const m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")}:null};
+const btn=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean(e.innerText+" "+(e.getAttribute("aria-label")||""))));
+if(btn){btn.scrollIntoView({block:"center"});btn.click();await new Promise(r=>setTimeout(r,1500));}
+let roots=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")];
+let root=roots[roots.length-1]||document;
 let out=[],seen=new Set();
-for(let z=0;z<40&&out.length<__LIMIT__;z++){
- const ds=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")],root=ds[ds.length-1];if(!root)break;
- for(const a of root.querySelectorAll("a[href*='/in/']")){const q=p(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>=__LIMIT__)break}}
- const sc=[...root.querySelectorAll("*")].find(x=>x.scrollHeight>x.clientHeight+100)||root;sc.scrollTop=sc.scrollHeight;
+for(let z=0;z<45&&out.length<__LIMIT__;z++){
+ for(const a of root.querySelectorAll("a[href*='/in/']")){
+  const q=p(a);if(q&&!seen.has(q.profile_url)){seen.add(q.profile_url);out.push(q);if(out.length>=__LIMIT__)break;}
+ }
+ const sc=[...root.querySelectorAll("*")].find(x=>x.scrollHeight>x.clientHeight+100);
+ if(!sc)break;
+ sc.scrollTop=sc.scrollHeight;
  await new Promise(r=>setTimeout(r,500));
 }
-return {items:out,note:""};
+return {items:out,note:btn?"":"未找到 reactions/likes 按钮"};
 })()"""
     r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=45)
     ex=auth.rstrip("/");out=[];seen=set()
