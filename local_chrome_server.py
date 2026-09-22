@@ -91,7 +91,7 @@ def author(c):
 def reactions(c,auth,limit):
     js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{const m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")}:null};
+const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
 const btn=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean(e.innerText+" "+(e.getAttribute("aria-label")||""))));
 if(btn){btn.scrollIntoView({block:"center"});btn.click();await new Promise(r=>setTimeout(r,1500));}
 let roots=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")];
