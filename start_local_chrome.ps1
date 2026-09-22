@@ -31,9 +31,9 @@ try {
 }
 
 Write-Host ""
-Write-Host "Windows 专用 Chrome 已启动。" -ForegroundColor Green
-Write-Host "如果第一次使用，请在这个 Chrome 窗口登录 LinkedIn。" -ForegroundColor Yellow
+Write-Host "Dedicated Chrome is ready." -ForegroundColor Green
+Write-Host "If this is the first run, log in to LinkedIn in this Chrome window." -ForegroundColor Yellow
 Write-Host ""
-Write-Host "接下来运行 Docker：" -ForegroundColor Cyan
+Write-Host "Now run Docker in another PowerShell window:" -ForegroundColor Cyan
 Write-Host "docker compose up -d --build" -ForegroundColor White
-Write-Host "然后打开 http://127.0.0.1:8766" -ForegroundColor Green
+Write-Host "Then open http://127.0.0.1:8766" -ForegroundColor Green
