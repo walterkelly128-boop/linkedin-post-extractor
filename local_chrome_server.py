@@ -108,7 +108,7 @@ return {items:out,note:""};
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:seen.add(p["profile_url"]);out.append(p)
     return out[:limit],(r or {}).get("note","")
 def comments(c,auth,limit):
-    r=c.eval(r"""async()=>{
+    r=c.eval(f"""async()=>{
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
 let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
