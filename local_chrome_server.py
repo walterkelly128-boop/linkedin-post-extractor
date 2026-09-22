@@ -88,8 +88,8 @@ def author(c):
 
 def reactions(c,auth,limit):
     r=c.eval(r"""async(limit)=>{
-const clean=s=>(s||"").replace(/\\s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?:\\/\\/(?:www\\.)?linkedin\\.com\\/in\\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\\/$/,"")}:null};
+const clean=s=>(s||"").replace(/\s+/g," ").trim();
+const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
 let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\\b\\d+[\\s,]*(?:reactions?|likes?)\\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(!b)return {items:[],note:"未找到 reactions/likes 按钮"};
 b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,1200));
@@ -110,8 +110,8 @@ return {items:out,note:""};
 def comments(c,auth,limit):
     r=c.eval(r"""async(limit)=>{
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{let m=(a.href||"").match(/https?://(?:www.)?linkedin.com/in/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/d*[s,]*comments?/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+const p=a=>{let m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
+let b=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
 if(b){b.scrollIntoView({block:"center"});b.click();await new Promise(r=>setTimeout(r,900))}
 let out=[],seen=new Set();
 for(let z=0;z<35&&!(limit>0&&out.length>=limit);z++){
