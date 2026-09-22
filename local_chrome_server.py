@@ -37,13 +37,24 @@ _DRIVER = None
 def get_cdp_address():
     return os.getenv("CHROME_CDP_ADDRESS", "host.docker.internal:9222")
 
+def cdp_request(path):
+    address = get_cdp_address()
+    req = urllib.request.Request(
+        f"http://{address}{path}",
+        headers={"Host": "localhost:9222"},
+    )
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read().decode("utf-8"))
+
 def check_cdp():
     address = get_cdp_address()
     try:
-        with urllib.request.urlopen(f"http://{address}/json/version", timeout=3) as r:
-            return json.loads(r.read().decode("utf-8"))
+        return cdp_request("/json/version")
     except Exception as exc:
-        raise RuntimeError(f"Windows Chrome CDP 不可访问：{address}；{exc}") from exc
+        raise RuntimeError(
+            f"Windows Chrome CDP 不可访问：{address}；"
+            f"已使用 Host: localhost:9222；{exc}"
+        ) from exc
 
 def get_driver():
     global _DRIVER
