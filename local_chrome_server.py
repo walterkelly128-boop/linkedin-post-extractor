@@ -101,8 +101,13 @@ const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText)||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
 const btn=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/\b\d+[\s,]*(?:reactions?|likes?)\b/i.test(clean(e.innerText+" "+(e.getAttribute("aria-label")||""))));
 if(btn){btn.scrollIntoView({block:"center"});btn.click();await new Promise(r=>setTimeout(r,1500));}
-let roots=[...document.querySelectorAll("[role='dialog'],.artdeco-modal")];
-let root=roots[roots.length-1]||document;
+let roots=[...document.querySelectorAll("[role='dialog'],.artdeco-modal,[data-test-modal]")];
+let root=roots[roots.length-1]||null;
+if(!root){
+ const candidates=[...document.querySelectorAll("section,div")].filter(x=>/\breactions?\b/i.test(clean(x.innerText||""))&&x.scrollHeight>x.clientHeight+100);
+ root=candidates.sort((a,b)=>b.innerText.length-a.innerText.length)[0]||document;
+}
+if(root!==document && !root.querySelector("a[href*='/in/']")) root=document;
 let out=[],seen=new Set();
 for(let z=0;z<45&&out.length<__LIMIT__;z++){
  for(const a of root.querySelectorAll("a[href*='/in/']")){
