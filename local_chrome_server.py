@@ -144,51 +144,36 @@ return {items:out,note:root?"":"未定位到包含 All N N 的 reactions 用户�
 def comments(c,auth,limit):
     js=r"""(async function(){
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);return m?{name:clean(a.innerText),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")}:null};
-const buttons=[...document.querySelectorAll("button,a,[role='button']")];
-const cb=buttons.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
-if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1400));}
-const sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant$/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))));
+const p=a=>{const m=(a.href||"").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/([^/?#]+)/i);if(!m)return null;let name=clean(a.innerText);if(!name){let n=a;for(let i=0;i<5&&n;i++,n=n.parentElement){const x=[...(n.querySelectorAll?.("a[href*='/in/']")||[])].map(e=>clean(e.innerText)).find(Boolean);if(x){name=x;break}}}name=name.replace(/\s*[•·]\s*3rd\+.*$/i,"").trim();return {name:name||m[1].replace(/-/g," "),profile_url:"https://www.linkedin.com/in/"+m[1].replace(/\/$/,"")};};
+const els=[...document.querySelectorAll("button,a,[role='button']")];
+const cb=els.find(e=>/\b\d+[\s,]*comments?\b/i.test(clean([e.innerText,e.getAttribute("aria-label"),e.getAttribute("data-test-id"),e.getAttribute("data-view-name")].join(" "))));
+if(cb){cb.scrollIntoView({block:"center"});cb.click();await new Promise(r=>setTimeout(r,1600));}
+let sort=[...document.querySelectorAll("button,a,[role='button']")].find(e=>/^most relevant(?:\s|$)/i.test(clean(e.innerText)||clean(e.getAttribute("aria-label"))||""));
 if(sort){sort.click();await new Promise(r=>setTimeout(r,500));}
-const recent=[...document.querySelectorAll("button,a,[role='button'],li")].find(e=>/^most recent$/i.test(clean(e.innerText)));
-if(recent){recent.click();await new Promise(r=>setTimeout(r,1600));}
+let recent=[...document.querySelectorAll("button,a,[role='button'],li")].find(e=>/^most recent(?:\s|$)/i.test(clean(e.innerText)||"")&&clean(e.innerText).length<160);
+if(recent){recent.click();await new Promise(r=>setTimeout(r,2200));}
+for(let i=0;i<8;i++){window.scrollBy(0,900);await new Promise(r=>setTimeout(r,500));}
 let out=[],seen=new Set();
-for(let z=0;z<20&&out.length<__LIMIT__;z++){
- for(const a of document.querySelectorAll("a[href*='/in/']")){
-   const q=p(a);if(!q||seen.has(q.profile_url))continue;
-   let n=a,box=null;
-   for(let k=0;k<14&&n;k++,n=n.parentElement){
-     const txt=clean(n.innerText||"");
-     const cls=((typeof n.className==="string"?n.className:"")+" "+(n.getAttribute?.("data-view-name")||"")+" "+(n.getAttribute?.("data-test-id")||"")).toLowerCase();
-     if(cls.includes("comment")||/\bcomment\b/i.test(cls)){box=n;break}
-     if(txt.length>20&&txt.length<1800&&/reply|like|follow|comment/i.test(txt)){box=n;}
-   }
-   if(!box)continue;
-   const lines=(box.innerText||"").split("\n").map(clean).filter(Boolean);
-   const qi=lines.findIndex(x=>x===q.name);
-   let text="";
-   if(qi>=0){
-     for(let k=qi+1;k<lines.length;k++){
-       const s=lines[k];
-       if(!s||/^\d+\s*(likes?|replies?|comments?)$/i.test(s)||/^(like|reply|follow|more)$/i.test(s))continue;
-       text=s;break;
-     }
-   }
-   seen.add(q.profile_url);out.push({...q,text});
-   if(out.length>=__LIMIT__)break;
- }
- window.scrollBy(0,900);await new Promise(r=>setTimeout(r,400));
+for(const a of document.querySelectorAll("a[href*='/in/']")){
+ const q=p(a);if(!q||seen.has(q.profile_url))continue;
+ let n=a,box=null;
+ for(let k=0;k<10&&n;k++,n=n.parentElement){const txt=clean(n.innerText||"");const links=n.querySelectorAll?.("a[href*='/in/']").length||0;if(links>=1&&links<=3&&txt.length>40&&txt.length<1200&&/\bFollow\b/i.test(txt)&&/\b\d+\s*\d+\s*\d+\b/.test(txt)&&(/Can I get a sample|sample of this RDP|\bFollow\b.*\b(?:1w|1d|h)\b/i.test(txt))){box=n;break}}
+ if(!box)continue;
+ const lines=(box.innerText||"").split("\n").map(clean).filter(Boolean);let text="";
+ const fi=lines.findIndex(x=>/^follow$/i.test(x));
+ if(fi>=0)for(let k=fi+1;k<lines.length;k++){const s=lines[k];if(!s||/^(like|reply|follow|more)$/i.test(s)||/^\d+$/.test(s)||/^\d+\s*(likes?|replies?|comments?)$/i.test(s)||/^some replies may not be displayed/i.test(s))continue;text=s;break}
+ if(!text){const raw=clean(box.innerText||"");const m=raw.match(/\bFollow\b\s+(.+?)(?=\s+\d+(?:\s+\d+){1,2}(?:\s|$))/i);if(m)text=clean(m[1])}
+ seen.add(q.profile_url);out.push({...q,text});if(out.length>=__LIMIT__)break;
 }
 return out;
-})()""";
-    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=50)
+})()"""
+    r=c.eval(js.replace("__LIMIT__",str(limit)),timeout=55)
     ex=auth.rstrip("/");out=[];seen=set()
     for x in r or []:
         p=profile(x)
         if p and p["profile_url"].rstrip("/")!=ex and p["profile_url"] not in seen:
             seen.add(p["profile_url"]);out.append({"name":p["name"],"profile_url":p["profile_url"],"text":x.get("text","")})
     return out[:limit]
-
 
 def inspect(c):
     raw=c.eval("""JSON.stringify({
