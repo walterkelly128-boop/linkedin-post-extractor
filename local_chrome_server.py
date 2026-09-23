@@ -247,7 +247,27 @@ for(let pass=0;pass<25;pass++){
   if(!clicked)break;
 }
 
-// 4. 滚动评论容器，触发 LinkedIn 虚拟化列表继续渲染。
+// 4. 展开“已有评论下的回复列表”。
+// 这里只点击 View/Load/Show replies，不点击 Reply/回复输入按钮，也不会发布任何内容。
+// 这是 linkedin-comment-extractor 中 expand_replies 的安全移植。
+for(let pass=0;pass<8;pass++){
+  let clicked=false;
+  for(const e of document.querySelectorAll("button,a,[role='button']")){
+    const t=clean(e.innerText||e.getAttribute("aria-label")||"");
+    const r=e.getBoundingClientRect();
+    if(r.width<=0||r.height<=0)continue;
+    if(/^(?:load|view|show|see)\s+(?:previous|more|all)?\s*(?:repl(?:y|ies)|replies)|^(?:展开|查看|更多|以前的)\s*(?:回复|评论回复)$/i.test(t)){
+      e.scrollIntoView({block:"center"});
+      e.click();
+      clicked=true;
+      await new Promise(r=>setTimeout(r,1800));
+      break;
+    }
+  }
+  if(!clicked)break;
+}
+
+// 5. 滚动评论容器，触发 LinkedIn 虚拟化列表继续渲染。
 for(let pass=0;pass<18;pass++){
   const boxes=[...document.querySelectorAll("div,section,ul,main")].filter(e=>{
     const t=clean(e.innerText||"");
@@ -264,7 +284,7 @@ for(let pass=0;pass<18;pass++){
   await new Promise(r=>setTimeout(r,900));
 }
 
-// 5. 使用另一个项目验证过的现代 DOM 策略：
+// 6. 使用另一个项目验证过的现代 DOM 策略：
 //    评论操作按钮 aria-label 通常包含 "for [Author]'s comment"。
 //    从该按钮向上寻找同时包含评论正文和 /in/ 个人主页链接的评论卡片。
 const results=[];
@@ -325,7 +345,7 @@ for(const optBtn of optButtons){
   }
 }
 
-// 6. 现代 aria 策略找不到时，使用另一个项目已经验证过的旧版评论卡片结构。
+// 7. 现代 aria 策略找不到时，使用另一个项目已经验证过的旧版评论卡片结构。
 if(results.length===0){
   const cards=[...document.querySelectorAll(
     'article.comments-comment-item, .comments-comments-list__comment-item, .comments-comment-item'
